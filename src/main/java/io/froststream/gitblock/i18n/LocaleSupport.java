@@ -1,4 +1,4 @@
-package io.froststream.untitled8.plotgit.i18n;
+package io.froststream.gitblock.i18n;
 
 import java.util.Locale;
 

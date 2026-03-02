@@ -1,4 +1,4 @@
-package io.froststream.untitled8.plotgit.diff;
+package io.froststream.gitblock.diff;
 
 import java.util.concurrent.atomic.AtomicInteger;
 

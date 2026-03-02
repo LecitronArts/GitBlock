@@ -1,9 +1,9 @@
-package io.froststream.untitled8.plotgit.command;
+package io.froststream.gitblock.command;
 
-import io.froststream.untitled8.plotgit.model.MergeConflict;
-import io.froststream.untitled8.plotgit.model.MergePlan;
-import io.froststream.untitled8.plotgit.model.BlockChangeRecord;
-import io.froststream.untitled8.plotgit.repo.RepositoryState;
+import io.froststream.gitblock.model.MergeConflict;
+import io.froststream.gitblock.model.MergePlan;
+import io.froststream.gitblock.model.BlockChangeRecord;
+import io.froststream.gitblock.repo.RepositoryState;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -17,16 +17,16 @@ import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 
 public final class BranchCommandHandler {
-    private final PlotGitCommandEnv env;
+    private final GitBlockCommandEnv env;
     private final TransitionCoordinator transitions;
 
-    public BranchCommandHandler(PlotGitCommandEnv env, TransitionCoordinator transitions) {
+    public BranchCommandHandler(GitBlockCommandEnv env, TransitionCoordinator transitions) {
         this.env = env;
         this.transitions = transitions;
     }
 
     public void handleBranch(CommandSender sender, String[] args) {
-        PlotGitCommandEnv.MutationTicket ticket = env.tryAcquireMutation(sender, "create branch");
+        GitBlockCommandEnv.MutationTicket ticket = env.tryAcquireMutation(sender, "create branch");
         if (ticket == null) {
             return;
         }
@@ -107,7 +107,7 @@ public final class BranchCommandHandler {
     }
 
     public void handleMerge(CommandSender sender, String[] args) {
-        PlotGitCommandEnv.MutationTicket ticket = env.tryAcquireMutation(sender, "merge");
+        GitBlockCommandEnv.MutationTicket ticket = env.tryAcquireMutation(sender, "merge");
         if (ticket == null) {
             return;
         }
@@ -202,7 +202,7 @@ public final class BranchCommandHandler {
             RepositoryState state,
             String theirsBranch,
             MergePlan mergePlan,
-            PlotGitCommandEnv.MutationTicket ticket) {
+            GitBlockCommandEnv.MutationTicket ticket) {
         if (mergePlan.hasConflicts()) {
             Path conflictFile = writeConflictFile(state.repoName(), theirsBranch, mergePlan.conflicts());
             env.send(
@@ -317,7 +317,7 @@ public final class BranchCommandHandler {
             String theirsBranch,
             List<BlockChangeRecord> recoveryChanges,
             Throwable throwable,
-            PlotGitCommandEnv.MutationTicket ticket) {
+            GitBlockCommandEnv.MutationTicket ticket) {
         env.send(sender, "branch.merge-commit-failed", env.rootMessage(throwable));
         env.send(sender, "branch.merge-rollback-attempt");
         String recoveryJobId =
@@ -361,7 +361,7 @@ public final class BranchCommandHandler {
                             + ".conflicts";
             Path file = env.conflictsDir().resolve(fileName);
             List<String> lines = new ArrayList<>();
-            lines.add("# PlotGit merge conflicts");
+            lines.add("# GitBlock merge conflicts");
             lines.add("# theirs=" + theirsBranch);
             lines.add("# count=" + conflicts.size());
             for (MergeConflict conflict : conflicts) {

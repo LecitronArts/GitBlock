@@ -1,13 +1,12 @@
-package io.froststream.untitled8.plotgit.commit;
+package io.froststream.gitblock.commit;
 
-import io.froststream.untitled8.plotgit.model.BlockChangeRecord;
-import io.froststream.untitled8.plotgit.model.CommitMetadata;
-import io.froststream.untitled8.plotgit.model.DiffSummary;
-import io.froststream.untitled8.plotgit.model.MergeConflict;
-import io.froststream.untitled8.plotgit.model.MergePlan;
-import io.froststream.untitled8.plotgit.model.LocationKey;
+import io.froststream.gitblock.model.BlockChangeRecord;
+import io.froststream.gitblock.model.CommitMetadata;
+import io.froststream.gitblock.model.DiffSummary;
+import io.froststream.gitblock.model.MergeConflict;
+import io.froststream.gitblock.model.MergePlan;
+import io.froststream.gitblock.model.LocationKey;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;

@@ -1,4 +1,4 @@
-package io.froststream.untitled8.plotgit.model;
+package io.froststream.gitblock.model;
 
 import java.time.Instant;
 import java.util.UUID;

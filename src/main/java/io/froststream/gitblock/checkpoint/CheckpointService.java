@@ -1,11 +1,11 @@
-package io.froststream.untitled8.plotgit.checkpoint;
+package io.froststream.gitblock.checkpoint;
 
-import io.froststream.untitled8.plotgit.commit.CommitWorker;
-import io.froststream.untitled8.plotgit.model.BlockChangeRecord;
-import io.froststream.untitled8.plotgit.model.CommitMetadata;
-import io.froststream.untitled8.plotgit.model.CommitResult;
-import io.froststream.untitled8.plotgit.model.LocationKey;
-import io.froststream.untitled8.plotgit.storage.SqliteStore;
+import io.froststream.gitblock.commit.CommitWorker;
+import io.froststream.gitblock.model.BlockChangeRecord;
+import io.froststream.gitblock.model.CommitMetadata;
+import io.froststream.gitblock.model.CommitResult;
+import io.froststream.gitblock.model.LocationKey;
+import io.froststream.gitblock.storage.SqliteStore;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;

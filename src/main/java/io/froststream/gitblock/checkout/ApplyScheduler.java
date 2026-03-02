@@ -1,10 +1,10 @@
-package io.froststream.untitled8.plotgit.checkout;
+package io.froststream.gitblock.checkout;
 
-import io.froststream.untitled8.plotgit.diff.TrackingGate;
-import io.froststream.untitled8.plotgit.model.ApplySummary;
-import io.froststream.untitled8.plotgit.model.BlockChangeRecord;
-import io.froststream.untitled8.plotgit.model.DirtyEntry;
-import io.froststream.untitled8.plotgit.model.LocationKey;
+import io.froststream.gitblock.diff.TrackingGate;
+import io.froststream.gitblock.model.ApplySummary;
+import io.froststream.gitblock.model.BlockChangeRecord;
+import io.froststream.gitblock.model.DirtyEntry;
+import io.froststream.gitblock.model.LocationKey;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Comparator;

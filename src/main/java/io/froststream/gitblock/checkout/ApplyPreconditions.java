@@ -1,11 +1,11 @@
-package io.froststream.untitled8.plotgit.checkout;
+package io.froststream.gitblock.checkout;
 
-import io.froststream.untitled8.plotgit.model.BlockChangeRecord;
+import io.froststream.gitblock.model.BlockChangeRecord;
 
-final class ApplyPreconditions {
+public final class ApplyPreconditions {
     private ApplyPreconditions() {}
 
-    static Decision decide(String currentState, BlockChangeRecord change) {
+    public static Decision decide(String currentState, BlockChangeRecord change) {
         if (currentState.equals(change.newState())) {
             return Decision.ALREADY_AT_TARGET;
         }
@@ -15,7 +15,7 @@ final class ApplyPreconditions {
         return Decision.APPLY;
     }
 
-    enum Decision {
+    public enum Decision {
         APPLY,
         ALREADY_AT_TARGET,
         PRECONDITION_FAILED

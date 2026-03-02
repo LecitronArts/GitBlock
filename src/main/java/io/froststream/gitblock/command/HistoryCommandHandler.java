@@ -1,11 +1,11 @@
-package io.froststream.untitled8.plotgit.command;
+package io.froststream.gitblock.command;
 
-import io.froststream.untitled8.plotgit.model.BlockChangeRecord;
-import io.froststream.untitled8.plotgit.model.CommitSummary;
-import io.froststream.untitled8.plotgit.model.DiffSummary;
-import io.froststream.untitled8.plotgit.model.DirtyEntry;
-import io.froststream.untitled8.plotgit.model.LocationKey;
-import io.froststream.untitled8.plotgit.repo.RepositoryState;
+import io.froststream.gitblock.model.BlockChangeRecord;
+import io.froststream.gitblock.model.CommitSummary;
+import io.froststream.gitblock.model.DiffSummary;
+import io.froststream.gitblock.model.DirtyEntry;
+import io.froststream.gitblock.model.LocationKey;
+import io.froststream.gitblock.repo.RepositoryState;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
@@ -21,17 +21,17 @@ public final class HistoryCommandHandler {
     private static final DateTimeFormatter TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
-    private final PlotGitCommandEnv env;
+    private final GitBlockCommandEnv env;
     private final TransitionCoordinator transitions;
     private final Map<String, Long> diffCooldownUntilBySender = new ConcurrentHashMap<>();
 
-    public HistoryCommandHandler(PlotGitCommandEnv env, TransitionCoordinator transitions) {
+    public HistoryCommandHandler(GitBlockCommandEnv env, TransitionCoordinator transitions) {
         this.env = env;
         this.transitions = transitions;
     }
 
     public void handleCommit(CommandSender sender, String[] args) {
-        PlotGitCommandEnv.MutationTicket ticket = env.tryAcquireMutation(sender, "commit");
+        GitBlockCommandEnv.MutationTicket ticket = env.tryAcquireMutation(sender, "commit");
         if (ticket == null) {
             return;
         }
@@ -225,7 +225,7 @@ public final class HistoryCommandHandler {
     }
 
     public void handleRevert(CommandSender sender, String[] args) {
-        PlotGitCommandEnv.MutationTicket ticket = env.tryAcquireMutation(sender, "revert");
+        GitBlockCommandEnv.MutationTicket ticket = env.tryAcquireMutation(sender, "revert");
         if (ticket == null) {
             return;
         }
@@ -289,7 +289,7 @@ public final class HistoryCommandHandler {
             RepositoryState state,
             String commitId,
             List<BlockChangeRecord> changes,
-            PlotGitCommandEnv.MutationTicket ticket) {
+            GitBlockCommandEnv.MutationTicket ticket) {
         if (env.isApplyQueueBusy()) {
             env.send(sender, "history.apply-queue-became-busy");
             ticket.close();
@@ -383,7 +383,7 @@ public final class HistoryCommandHandler {
             String commitId,
             List<BlockChangeRecord> recoveryChanges,
             Throwable commitThrowable,
-            PlotGitCommandEnv.MutationTicket ticket) {
+            GitBlockCommandEnv.MutationTicket ticket) {
         env.send(sender, "history.revert-commit-failed", env.rootMessage(commitThrowable));
         env.send(sender, "history.revert-recovery-attempt");
         String recoveryJobId =

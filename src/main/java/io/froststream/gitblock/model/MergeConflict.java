@@ -1,4 +1,4 @@
-package io.froststream.untitled8.plotgit.model;
+package io.froststream.gitblock.model;
 
 public record MergeConflict(
         String world,

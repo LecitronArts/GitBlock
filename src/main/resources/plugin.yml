@@ -1,22 +1,24 @@
-name: PlotGit
+name: GitBlock
 version: '${version}'
-main: io.froststream.untitled8.Untitled8
+main: io.froststream.gitblock.GitBlock
 api-version: '1.21'
 authors: [LecitronArts]
 description: Git-inspired block history and checkout workflow for creative servers.
 website: weeaxe.cn
+libraries:
+  - org.xerial:sqlite-jdbc:3.46.0.0
 commands:
-  plotgit:
-    description: PlotGit command entry point
-    usage: /plotgit <help|init|status|commit|log|checkout|checkpoint>
-    permission: plotgit.use
+  GitBlock:
+    description: GitBlock command entry point
+    usage: /gitblock <help|menu|pos1|pos2|init|status|commit|log|checkout|branch|branches|switch|merge|diff|revert|jobs|cancel|bench|checkpoint>
+    permission: gitblock.use
 permissions:
-  plotgit.use:
-    description: Allows usage of base PlotGit commands
+  GitBlock.use:
+    description: Allows usage of base GitBlock commands
     default: true
-  plotgit.admin:
+  GitBlock.admin:
     description: Reserved for admin-level management commands
     default: op
-  plotgit.bypass.quota:
+  GitBlock.bypass.quota:
     description: Reserved quota bypass for future features
     default: op

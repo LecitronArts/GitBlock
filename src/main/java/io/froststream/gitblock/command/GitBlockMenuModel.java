@@ -3,7 +3,7 @@ package io.froststream.gitblock.command;
 import java.util.Map;
 import java.util.Set;
 
-final class GitBlockMenuModel {
+public final class GitBlockMenuModel {
     static final int MENU_SIZE = 54;
 
     static final int SLOT_STATUS = 20;

@@ -1,8 +1,8 @@
-package io.froststream.untitled8.plotgit.diff;
+package io.froststream.gitblock.diff;
 
-import io.froststream.untitled8.plotgit.model.LocationKey;
-import io.froststream.untitled8.plotgit.repo.RepositoryState;
-import io.froststream.untitled8.plotgit.repo.RepositoryStateService;
+import io.froststream.gitblock.model.LocationKey;
+import io.froststream.gitblock.repo.RepositoryState;
+import io.froststream.gitblock.repo.RepositoryStateService;
 import java.util.List;
 import org.bukkit.Material;
 import org.bukkit.block.Block;

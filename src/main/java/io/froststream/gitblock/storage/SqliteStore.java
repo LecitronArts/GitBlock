@@ -1,8 +1,8 @@
-package io.froststream.untitled8.plotgit.storage;
+package io.froststream.gitblock.storage;
 
-import io.froststream.untitled8.plotgit.model.CommitMetadata;
-import io.froststream.untitled8.plotgit.repo.RepoRegion;
-import io.froststream.untitled8.plotgit.repo.RepositoryState;
+import io.froststream.gitblock.model.CommitMetadata;
+import io.froststream.gitblock.repo.RepoRegion;
+import io.froststream.gitblock.repo.RepositoryState;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;

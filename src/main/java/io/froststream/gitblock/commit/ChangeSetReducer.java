@@ -1,8 +1,8 @@
-package io.froststream.untitled8.plotgit.commit;
+package io.froststream.gitblock.commit;
 
-import io.froststream.untitled8.plotgit.model.BlockChangeRecord;
-import io.froststream.untitled8.plotgit.model.DirtyEntry;
-import io.froststream.untitled8.plotgit.model.LocationKey;
+import io.froststream.gitblock.model.BlockChangeRecord;
+import io.froststream.gitblock.model.DirtyEntry;
+import io.froststream.gitblock.model.LocationKey;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;

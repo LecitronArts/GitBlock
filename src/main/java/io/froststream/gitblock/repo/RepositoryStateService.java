@@ -1,6 +1,6 @@
-package io.froststream.untitled8.plotgit.repo;
+package io.froststream.gitblock.repo;
 
-import io.froststream.untitled8.plotgit.storage.SqliteStore;
+import io.froststream.gitblock.storage.SqliteStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.bukkit.configuration.file.YamlConfiguration;

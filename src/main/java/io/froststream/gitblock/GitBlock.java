@@ -1,4 +1,4 @@
-package io.froststream;
+package io.froststream.gitblock;
 
 import io.froststream.gitblock.checkpoint.CheckpointService;
 import io.froststream.gitblock.checkout.ApplyScheduler;

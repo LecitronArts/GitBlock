@@ -1,10 +1,10 @@
-package io.froststream.untitled8.plotgit.commit;
+package io.froststream.gitblock.commit;
 
-import io.froststream.untitled8.plotgit.model.BlockChangeRecord;
-import io.froststream.untitled8.plotgit.model.CommitMetadata;
-import io.froststream.untitled8.plotgit.model.CommitResult;
-import io.froststream.untitled8.plotgit.model.CommitSummary;
-import io.froststream.untitled8.plotgit.storage.SqliteStore;
+import io.froststream.gitblock.model.BlockChangeRecord;
+import io.froststream.gitblock.model.CommitMetadata;
+import io.froststream.gitblock.model.CommitResult;
+import io.froststream.gitblock.model.CommitSummary;
+import io.froststream.gitblock.storage.SqliteStore;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -60,10 +60,10 @@ public final class CommitWorker {
         this.sqliteStore = sqliteStore;
         this.objectsDir = repoRoot.resolve("objects");
         this.legacyCommitsLog = repoRoot.resolve("commits.log");
-        this.commitExecutor = newSingleThreadExecutor("plotgit-commit-writer");
+        this.commitExecutor = newSingleThreadExecutor("gitblock-commit-writer");
         this.queryExecutor =
                 newBoundedThreadPool(
-                        QUERY_THREADS, QUERY_QUEUE_CAPACITY, "plotgit-commit-query");
+                        QUERY_THREADS, QUERY_QUEUE_CAPACITY, "gitblock-commit-query");
         initStorage();
         migrateLegacyIfNeeded();
         loadIndexFromDatabase();
@@ -357,7 +357,7 @@ public final class CommitWorker {
         try {
             Files.createDirectories(objectsDir);
         } catch (IOException ioException) {
-            throw new IllegalStateException("Failed to initialize PlotGit storage", ioException);
+            throw new IllegalStateException("Failed to initialize GitBlock storage", ioException);
         }
     }
 
@@ -416,7 +416,7 @@ public final class CommitWorker {
         }
 
         if (!loadedOrder.isEmpty()) {
-            plugin.getLogger().info("Loaded " + loadedOrder.size() + " PlotGit commits from SQLite.");
+            plugin.getLogger().info("Loaded " + loadedOrder.size() + " GitBlock commits from SQLite.");
         }
     }
 

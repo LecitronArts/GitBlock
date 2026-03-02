@@ -1,17 +1,17 @@
-package io.froststream.untitled8.plotgit.command;
+package io.froststream.gitblock.command;
 
-import io.froststream.untitled8.plotgit.checkout.ApplyJobStatus;
-import io.froststream.untitled8.plotgit.repo.RepoRegion;
-import io.froststream.untitled8.plotgit.repo.RepositoryState;
-import io.froststream.untitled8.plotgit.repo.SelectionService.SelectedRegion;
+import io.froststream.gitblock.checkout.ApplyJobStatus;
+import io.froststream.gitblock.repo.RepoRegion;
+import io.froststream.gitblock.repo.RepositoryState;
+import io.froststream.gitblock.repo.SelectionService.SelectedRegion;
 import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 public final class RepositoryCommandHandler {
-    private final PlotGitCommandEnv env;
+    private final GitBlockCommandEnv env;
 
-    public RepositoryCommandHandler(PlotGitCommandEnv env) {
+    public RepositoryCommandHandler(GitBlockCommandEnv env) {
         this.env = env;
     }
 
@@ -31,7 +31,7 @@ public final class RepositoryCommandHandler {
     }
 
     public void handleInit(CommandSender sender, String[] args) {
-        PlotGitCommandEnv.MutationTicket ticket = env.tryAcquireMutation(sender, "initialize repository");
+        GitBlockCommandEnv.MutationTicket ticket = env.tryAcquireMutation(sender, "initialize repository");
         if (ticket == null) {
             return;
         }

@@ -1,4 +1,4 @@
-package io.froststream.untitled8.plotgit.checkout;
+package io.froststream.gitblock.checkout;
 
 public record ApplyEnqueueResult(boolean accepted, String jobId, String message) {
     public static ApplyEnqueueResult accepted(String jobId, String message) {

@@ -1,9 +1,9 @@
-package io.froststream.untitled8.plotgit.command;
+package io.froststream.gitblock.command;
 
-import io.froststream.untitled8.plotgit.model.BlockChangeRecord;
-import io.froststream.untitled8.plotgit.model.LocationKey;
-import io.froststream.untitled8.plotgit.repo.RepoRegion;
-import io.froststream.untitled8.plotgit.repo.RepositoryState;
+import io.froststream.gitblock.model.BlockChangeRecord;
+import io.froststream.gitblock.model.LocationKey;
+import io.froststream.gitblock.repo.RepoRegion;
+import io.froststream.gitblock.repo.RepositoryState;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -24,15 +24,15 @@ public final class BenchmarkCommandHandler {
     private static final int SNAPSHOT_BLOCKS_PER_TICK = 4000;
     private static final String SNAPSHOT_PREFIX = "snap-";
 
-    private final PlotGitCommandEnv env;
+    private final GitBlockCommandEnv env;
     private final Map<String, SnapshotProcess> snapshotProcesses = new ConcurrentHashMap<>();
 
-    public BenchmarkCommandHandler(PlotGitCommandEnv env) {
+    public BenchmarkCommandHandler(GitBlockCommandEnv env) {
         this.env = env;
     }
 
     public void handleBench(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("plotgit.admin")) {
+        if (!sender.hasPermission("gitblock.admin")) {
             env.send(sender, "common.no-permission-admin");
             return;
         }
@@ -58,7 +58,7 @@ public final class BenchmarkCommandHandler {
     }
 
     private void runBenchmark(CommandSender sender, RepositoryState state, String[] args) {
-        PlotGitCommandEnv.MutationTicket ticket = env.tryAcquireMutation(sender, "benchmark run");
+        GitBlockCommandEnv.MutationTicket ticket = env.tryAcquireMutation(sender, "benchmark run");
         if (ticket == null) {
             return;
         }
@@ -139,7 +139,7 @@ public final class BenchmarkCommandHandler {
             String blockB,
             int expectedSize,
             String snapshotProcessId,
-            PlotGitCommandEnv.MutationTicket ticket,
+            GitBlockCommandEnv.MutationTicket ticket,
             Consumer<List<BlockChangeRecord>> onReady) {
         List<BlockChangeRecord> changes = new ArrayList<>(expectedSize);
         Map<String, String> statePool = new HashMap<>();
@@ -222,7 +222,7 @@ public final class BenchmarkCommandHandler {
             int height,
             List<BlockChangeRecord> changes,
             boolean autoRollback,
-            PlotGitCommandEnv.MutationTicket ticket) {
+            GitBlockCommandEnv.MutationTicket ticket) {
         String jobId =
                 env.enqueueApplyJob(
                         sender,
@@ -300,7 +300,7 @@ public final class BenchmarkCommandHandler {
             long depth,
             int height,
             List<BlockChangeRecord> changes,
-            PlotGitCommandEnv.MutationTicket ticket) {
+            GitBlockCommandEnv.MutationTicket ticket) {
         String branchName = state.currentBranch();
         String expectedParentCommitId = state.activeCommitId();
         String message =
@@ -365,7 +365,7 @@ public final class BenchmarkCommandHandler {
             CommandSender sender,
             List<BlockChangeRecord> forwardChanges,
             Throwable throwable,
-            PlotGitCommandEnv.MutationTicket ticket) {
+            GitBlockCommandEnv.MutationTicket ticket) {
         env.send(sender, "benchmark.commit-failed", env.rootMessage(throwable));
         env.send(sender, "benchmark.commit-recovery-attempt");
         List<BlockChangeRecord> recoveryChanges = env.reverseChanges(forwardChanges);
@@ -406,7 +406,7 @@ public final class BenchmarkCommandHandler {
             int height,
             List<BlockChangeRecord> forwardChanges,
             Set<LocationKey> expectedRestoredKeys,
-            PlotGitCommandEnv.MutationTicket ticket) {
+            GitBlockCommandEnv.MutationTicket ticket) {
         List<BlockChangeRecord> rollbackChanges = env.reverseChanges(forwardChanges);
         String rollbackJobId =
                 env.enqueueApplyJob(
@@ -546,5 +546,5 @@ public final class BenchmarkCommandHandler {
     }
 
     private record SnapshotProcess(
-            BukkitTask task, PlotGitCommandEnv.MutationTicket ticket, CommandSender owner) {}
+            BukkitTask task, GitBlockCommandEnv.MutationTicket ticket, CommandSender owner) {}
 }

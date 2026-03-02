@@ -1,22 +1,22 @@
-package io.froststream.untitled8.plotgit.command;
+package io.froststream.gitblock.command;
 
-import io.froststream.untitled8.plotgit.checkout.ApplyJobStatus;
-import io.froststream.untitled8.plotgit.repo.RepositoryState;
+import io.froststream.gitblock.checkout.ApplyJobStatus;
+import io.froststream.gitblock.repo.RepositoryState;
 import java.util.ArrayList;
 import java.util.List;
 import org.bukkit.command.CommandSender;
 
 public final class AdminCommandHandler {
-    private final PlotGitCommandEnv env;
+    private final GitBlockCommandEnv env;
     private final BenchmarkCommandHandler benchmark;
 
-    public AdminCommandHandler(PlotGitCommandEnv env, BenchmarkCommandHandler benchmark) {
+    public AdminCommandHandler(GitBlockCommandEnv env, BenchmarkCommandHandler benchmark) {
         this.env = env;
         this.benchmark = benchmark;
     }
 
     public void handleCheckpoint(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("plotgit.admin")) {
+        if (!sender.hasPermission("gitblock.admin")) {
             env.send(sender, "common.no-permission-admin");
             return;
         }
@@ -70,7 +70,7 @@ public final class AdminCommandHandler {
     }
 
     public void handleCancel(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("plotgit.admin")) {
+        if (!sender.hasPermission("gitblock.admin")) {
             env.send(sender, "common.no-permission-admin");
             return;
         }

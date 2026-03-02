@@ -1,7 +1,7 @@
-package io.froststream.untitled8.plotgit.diff;
+package io.froststream.gitblock.diff;
 
-import io.froststream.untitled8.plotgit.model.DirtyEntry;
-import io.froststream.untitled8.plotgit.model.LocationKey;
+import io.froststream.gitblock.model.DirtyEntry;
+import io.froststream.gitblock.model.LocationKey;
 import java.util.HashMap;
 import java.util.Map;
 

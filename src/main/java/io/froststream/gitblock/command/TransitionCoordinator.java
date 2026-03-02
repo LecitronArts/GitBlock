@@ -1,13 +1,13 @@
-package io.froststream.untitled8.plotgit.command;
+package io.froststream.gitblock.command;
 
-import io.froststream.untitled8.plotgit.repo.RepositoryState;
+import io.froststream.gitblock.repo.RepositoryState;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 
 public final class TransitionCoordinator {
-    private final PlotGitCommandEnv env;
+    private final GitBlockCommandEnv env;
 
-    public TransitionCoordinator(PlotGitCommandEnv env) {
+    public TransitionCoordinator(GitBlockCommandEnv env) {
         this.env = env;
     }
 
@@ -18,7 +18,7 @@ public final class TransitionCoordinator {
             boolean switchBranchAfterSuccess,
             boolean advanceTargetBranchHeadAfterSuccess,
             String targetBranchName) {
-        PlotGitCommandEnv.MutationTicket ticket =
+        GitBlockCommandEnv.MutationTicket ticket =
                 env.tryAcquireMutation(
                         sender,
                         "transition "
@@ -45,7 +45,7 @@ public final class TransitionCoordinator {
             boolean switchBranchAfterSuccess,
             boolean advanceTargetBranchHeadAfterSuccess,
             String targetBranchName,
-            PlotGitCommandEnv.MutationTicket ticket) {
+            GitBlockCommandEnv.MutationTicket ticket) {
         if (env.isApplyQueueBusy()) {
             env.send(sender, "transition.apply-queue-busy");
             ticket.close();

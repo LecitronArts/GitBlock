@@ -1,4 +1,4 @@
-package io.froststream.untitled8.plotgit.checkout;
+package io.froststream.gitblock.checkout;
 
 public record ApplyJobStatus(
         String jobId,

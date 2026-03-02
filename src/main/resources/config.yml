@@ -1,8 +1,34 @@
 repo-name: default
 
+i18n:
+  # default language for console and unknown locales
+  default-locale: zh_cn
+  # fallback language when key is missing
+  fallback-locale: en_us
+  # force all senders to a locale, empty means auto-detect by player locale
+  force-locale: ""
+  # chat prefix for localized messages
+  prefix: "&8[&bGitBlock&8]&r "
+
 apply:
   max-blocks-per-tick: 1500
   tick-budget-ms: 2
+  max-queued-jobs: 8
+  # reject-new: reject new apply jobs when pending queue is full
+  # drop-oldest-pending: cancel oldest pending apply job and accept new one
+  queue-overflow-policy: reject-new
 
 checkpoints:
   every-commits: 20
+
+operations:
+  # true: serialize all mutating GitBlock operations (recommended)
+  # false: keep previous loose concurrency behavior
+  serialize-mutations: true
+  # minimum interval between /gitblock diff requests per sender
+  diff-cooldown-ms: 1000
+
+history:
+  # first-parent: replay-safe for GitBlock delta format
+  # all-parents: merge-base also considers merge-parent links, with safe fallback when replay path is ambiguous
+  merge-base-mode: first-parent

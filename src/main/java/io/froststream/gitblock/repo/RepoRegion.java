@@ -1,4 +1,4 @@
-package io.froststream.untitled8.plotgit.repo;
+package io.froststream.gitblock.repo;
 
 import org.bukkit.Location;
 import org.bukkit.block.Block;
