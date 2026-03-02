@@ -10,14 +10,24 @@ public final class RepositoryStateService {
     private final JavaPlugin plugin;
     private final SqliteStore sqliteStore;
     private final Path legacyStateFile;
+    private final String fallbackRepositoryName;
     private RepositoryState state;
 
     public RepositoryStateService(JavaPlugin plugin, SqliteStore sqliteStore) {
+        this(plugin, sqliteStore, "default", plugin.getDataFolder().toPath().resolve("repo-state.yml"));
+    }
+
+    public RepositoryStateService(
+            JavaPlugin plugin,
+            SqliteStore sqliteStore,
+            String fallbackRepositoryName,
+            Path legacyStateFile) {
         this.plugin = plugin;
         this.sqliteStore = sqliteStore;
-        this.legacyStateFile = plugin.getDataFolder().toPath().resolve("repo-state.yml");
+        this.fallbackRepositoryName = fallbackRepositoryName == null ? "default" : fallbackRepositoryName;
+        this.legacyStateFile = legacyStateFile;
         migrateLegacyIfNeeded();
-        this.state = sqliteStore.loadRepositoryState();
+        this.state = sqliteStore.loadRepositoryState(this.fallbackRepositoryName);
     }
 
     public synchronized RepositoryState getState() {
@@ -40,7 +50,7 @@ public final class RepositoryStateService {
         if (sqliteStore.hasInitializedRepoState()) {
             return;
         }
-        if (!Files.exists(legacyStateFile)) {
+        if (legacyStateFile == null || !Files.exists(legacyStateFile)) {
             return;
         }
 
@@ -49,7 +59,7 @@ public final class RepositoryStateService {
             return;
         }
 
-        String repoName = yaml.getString("repo-name", "default");
+        String repoName = yaml.getString("repo-name", fallbackRepositoryName);
         RepoRegion region =
                 new RepoRegion(
                         yaml.getString("region.world", ""),

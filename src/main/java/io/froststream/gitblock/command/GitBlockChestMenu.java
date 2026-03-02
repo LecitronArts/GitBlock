@@ -1,5 +1,7 @@
 package io.froststream.gitblock.command;
 
+import io.froststream.gitblock.repo.RepositoryRuntime;
+import io.froststream.gitblock.repo.RepositoryState;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -32,27 +34,127 @@ public final class GitBlockChestMenu implements Listener {
     }
 
     public void open(Player player) {
-        MenuHolder holder = new MenuHolder();
+        RepositoryRuntime runtime = env.runtime(player);
+        if (runtime == null) {
+            return;
+        }
+        RepositoryState state = runtime.repositoryStateService().getState();
+        int dirtyCount = runtime.dirtyMap().size();
+        String quickCommitMessage = env.resolveCommitMessage(player, runtime, dirtyCount);
+        String customTemplate = env.playerCommitMessageTemplate(player);
+
+        MenuHolder holder = new MenuHolder(quickCommitMessage);
         Inventory inventory =
                 Bukkit.createInventory(holder, GitBlockMenuModel.MENU_SIZE, env.trRaw(player, "menu.title"));
         holder.bind(inventory);
 
         fillBackground(inventory);
-        inventory.setItem(GitBlockMenuModel.SLOT_STATUS, actionItem(player, Material.PAPER, "menu.item.status"));
-        inventory.setItem(GitBlockMenuModel.SLOT_LOG, actionItem(player, Material.BOOK, "menu.item.log"));
         inventory.setItem(
-                GitBlockMenuModel.SLOT_BRANCHES, actionItem(player, Material.CHEST, "menu.item.branches"));
+                GitBlockMenuModel.SLOT_REPOS,
+                actionItem(
+                        player,
+                        Material.BARREL,
+                        "menu.item.repos",
+                        List.of(
+                                env.trRaw(player, "menu.dynamic.repo", runtime.repositoryName()),
+                                env.trRaw(
+                                        player,
+                                        "menu.dynamic.repo-usage",
+                                        env.ownedRepositories(player),
+                                        env.maxRepositories(player)))));
         inventory.setItem(
-                GitBlockMenuModel.SLOT_COMMIT, actionItem(player, Material.EMERALD_BLOCK, "menu.item.commit"));
-        inventory.setItem(GitBlockMenuModel.SLOT_JOBS, actionItem(player, Material.CLOCK, "menu.item.jobs"));
+                GitBlockMenuModel.SLOT_STATUS,
+                actionItem(
+                        player,
+                        Material.PAPER,
+                        "menu.item.status",
+                        List.of(
+                                env.trRaw(player, "menu.dynamic.repo", runtime.repositoryName()),
+                                env.trRaw(player, "menu.dynamic.branch", state.currentBranch()),
+                                env.trRaw(
+                                        player,
+                                        "menu.dynamic.head",
+                                        state.activeCommitId() == null ? env.trRaw(player, "common.none") : state.activeCommitId()))));
+        inventory.setItem(
+                GitBlockMenuModel.SLOT_LOG,
+                actionItem(
+                        player,
+                        Material.BOOK,
+                        "menu.item.log",
+                        List.of(
+                                env.trRaw(
+                                        player,
+                                        "menu.dynamic.latest",
+                                        latestCommit(runtime, player)))));
+        inventory.setItem(
+                GitBlockMenuModel.SLOT_BRANCHES,
+                actionItem(
+                        player,
+                        Material.CHEST,
+                        "menu.item.branches",
+                        List.of(
+                                env.trRaw(player, "menu.dynamic.branches", state.branchHeads().size()),
+                                env.trRaw(player, "menu.dynamic.branch", state.currentBranch()))));
+        inventory.setItem(
+                GitBlockMenuModel.SLOT_COMMIT,
+                actionItem(
+                        player,
+                        Material.EMERALD_BLOCK,
+                        "menu.item.commit",
+                        List.of(
+                                env.trRaw(player, "menu.dynamic.dirty", dirtyCount),
+                                env.trRaw(player, "menu.dynamic.quick-message", quickCommitMessage))));
+        inventory.setItem(
+                GitBlockMenuModel.SLOT_JOBS,
+                actionItem(
+                        player,
+                        Material.CLOCK,
+                        "menu.item.jobs",
+                        List.of(env.trRaw(player, "menu.dynamic.queued-jobs", env.applyScheduler().queuedJobs()))));
         inventory.setItem(
                 GitBlockMenuModel.SLOT_CHECKPOINT,
-                actionItem(player, Material.ENDER_CHEST, "menu.item.checkpoint"));
+                actionItem(
+                        player,
+                        Material.ENDER_CHEST,
+                        "menu.item.checkpoint",
+                        List.of(
+                                env.trRaw(
+                                        player,
+                                        "menu.dynamic.head",
+                                        state.activeCommitId() == null ? env.trRaw(player, "common.none") : state.activeCommitId()))));
+        inventory.setItem(
+                GitBlockMenuModel.SLOT_COMMIT_MESSAGE,
+                actionItem(
+                        player,
+                        Material.NAME_TAG,
+                        "menu.item.commit-message",
+                        List.of(
+                                env.trRaw(
+                                        player,
+                                        "menu.dynamic.commit-template-mode",
+                                        customTemplate == null
+                                                ? env.trRaw(player, "menu.dynamic.template-default")
+                                                : env.trRaw(player, "menu.dynamic.template-custom")),
+                                env.trRaw(
+                                        player,
+                                        "menu.dynamic.commit-template-preview",
+                                        customTemplate == null
+                                                ? env.defaultCommitMessageTemplate()
+                                                : customTemplate))));
         inventory.setItem(
                 GitBlockMenuModel.SLOT_CHECKOUT_HELP,
-                actionItem(player, Material.COMPASS, "menu.item.checkout"));
+                actionItem(
+                        player,
+                        Material.COMPASS,
+                        "menu.item.checkout",
+                        List.of(env.trRaw(player, "menu.dynamic.head", env.nullable(state.activeCommitId())))));
         inventory.setItem(
-                GitBlockMenuModel.SLOT_DIFF_HELP, actionItem(player, Material.SPYGLASS, "menu.item.diff"));
+                GitBlockMenuModel.SLOT_DIFF_HELP,
+                actionItem(
+                        player,
+                        Material.SPYGLASS,
+                        "menu.item.diff",
+                        List.of(env.trRaw(player, "menu.dynamic.branch", state.currentBranch()))));
         inventory.setItem(
                 GitBlockMenuModel.SLOT_CLOSE, actionItem(player, Material.BARRIER, "menu.item.close"));
 
@@ -135,6 +237,11 @@ public final class GitBlockChestMenu implements Listener {
     }
 
     private ItemStack actionItem(Player player, Material material, String keyPrefix) {
+        return actionItem(player, material, keyPrefix, List.of());
+    }
+
+    private ItemStack actionItem(
+            Player player, Material material, String keyPrefix, List<String> extraLoreLines) {
         ItemStack stack = new ItemStack(material);
         ItemMeta meta = stack.getItemMeta();
         if (meta == null) {
@@ -145,7 +252,7 @@ public final class GitBlockChestMenu implements Listener {
         String lore2Key = keyPrefix + ".lore2";
 
         meta.setDisplayName(env.trRaw(player, nameKey));
-        List<String> lore = new ArrayList<>(2);
+        List<String> lore = new ArrayList<>(2 + extraLoreLines.size());
         String lore1 = env.trRaw(player, lore1Key);
         String lore2 = env.trRaw(player, lore2Key);
         if (!lore1.equals(lore1Key)) {
@@ -153,6 +260,11 @@ public final class GitBlockChestMenu implements Listener {
         }
         if (!lore2.equals(lore2Key)) {
             lore.add(lore2);
+        }
+        for (String line : extraLoreLines) {
+            if (line != null && !line.isBlank()) {
+                lore.add(line);
+            }
         }
         if (!lore.isEmpty()) {
             meta.setLore(lore);
@@ -170,7 +282,21 @@ public final class GitBlockChestMenu implements Listener {
                         () -> player.performCommand(command.startsWith("/") ? command.substring(1) : command));
     }
 
+    private String latestCommit(RepositoryRuntime runtime, Player player) {
+        List<io.froststream.gitblock.model.CommitSummary> commits = runtime.commitWorker().tail(1);
+        if (commits.isEmpty()) {
+            return env.trRaw(player, "common.none");
+        }
+        return commits.get(0).commitId();
+    }
+
     private enum MenuAction {
+        REPOS(GitBlockMenuModel.SLOT_REPOS) {
+            @Override
+            void execute(GitBlockChestMenu menu, Player player) {
+                menu.runCommand(player, "gitblock repo list");
+            }
+        },
         STATUS(GitBlockMenuModel.SLOT_STATUS) {
             @Override
             void execute(GitBlockChestMenu menu, Player player) {
@@ -192,7 +318,18 @@ public final class GitBlockChestMenu implements Listener {
         COMMIT(GitBlockMenuModel.SLOT_COMMIT) {
             @Override
             void execute(GitBlockChestMenu menu, Player player) {
-                menu.runCommand(player, "gitblock commit gui quick commit");
+                RepositoryRuntime runtime = menu.env.runtime(player);
+                if (runtime == null) {
+                    return;
+                }
+                RepositoryState state = runtime.repositoryStateService().getState();
+                if (!state.initialized() || runtime.dirtyMap().size() == 0 || menu.env.isApplyQueueBusy()) {
+                    menu.env.send(player, "menu.dynamic.no-dirty");
+                    return;
+                }
+                String message =
+                        menu.env.resolveCommitMessage(player, runtime, runtime.dirtyMap().size());
+                menu.runCommand(player, "gitblock commit " + message);
             }
         },
         JOBS(GitBlockMenuModel.SLOT_JOBS) {
@@ -209,6 +346,12 @@ public final class GitBlockChestMenu implements Listener {
                     return;
                 }
                 menu.runCommand(player, "gitblock checkpoint now");
+            }
+        },
+        COMMIT_MESSAGE(GitBlockMenuModel.SLOT_COMMIT_MESSAGE) {
+            @Override
+            void execute(GitBlockChestMenu menu, Player player) {
+                menu.runCommand(player, "gitblock commitmsg show");
             }
         },
         CHECKOUT_HELP(GitBlockMenuModel.SLOT_CHECKOUT_HELP) {
@@ -231,16 +374,18 @@ public final class GitBlockChestMenu implements Listener {
         };
 
         private static final Map<Integer, MenuAction> BY_SLOT =
-                Map.of(
-                        GitBlockMenuModel.SLOT_STATUS, STATUS,
-                        GitBlockMenuModel.SLOT_LOG, LOG,
-                        GitBlockMenuModel.SLOT_BRANCHES, BRANCHES,
-                        GitBlockMenuModel.SLOT_COMMIT, COMMIT,
-                        GitBlockMenuModel.SLOT_JOBS, JOBS,
-                        GitBlockMenuModel.SLOT_CHECKPOINT, CHECKPOINT,
-                        GitBlockMenuModel.SLOT_CHECKOUT_HELP, CHECKOUT_HELP,
-                        GitBlockMenuModel.SLOT_DIFF_HELP, DIFF_HELP,
-                        GitBlockMenuModel.SLOT_CLOSE, CLOSE);
+                Map.ofEntries(
+                        Map.entry(GitBlockMenuModel.SLOT_REPOS, REPOS),
+                        Map.entry(GitBlockMenuModel.SLOT_STATUS, STATUS),
+                        Map.entry(GitBlockMenuModel.SLOT_LOG, LOG),
+                        Map.entry(GitBlockMenuModel.SLOT_BRANCHES, BRANCHES),
+                        Map.entry(GitBlockMenuModel.SLOT_COMMIT, COMMIT),
+                        Map.entry(GitBlockMenuModel.SLOT_JOBS, JOBS),
+                        Map.entry(GitBlockMenuModel.SLOT_CHECKPOINT, CHECKPOINT),
+                        Map.entry(GitBlockMenuModel.SLOT_COMMIT_MESSAGE, COMMIT_MESSAGE),
+                        Map.entry(GitBlockMenuModel.SLOT_CHECKOUT_HELP, CHECKOUT_HELP),
+                        Map.entry(GitBlockMenuModel.SLOT_DIFF_HELP, DIFF_HELP),
+                        Map.entry(GitBlockMenuModel.SLOT_CLOSE, CLOSE));
 
         MenuAction(int slot) {}
 
@@ -248,10 +393,19 @@ public final class GitBlockChestMenu implements Listener {
     }
 
     private static final class MenuHolder implements InventoryHolder {
+        private final String quickCommitMessage;
         private Inventory inventory;
+
+        private MenuHolder(String quickCommitMessage) {
+            this.quickCommitMessage = quickCommitMessage;
+        }
 
         private void bind(Inventory inventory) {
             this.inventory = inventory;
+        }
+
+        private String quickCommitMessage() {
+            return quickCommitMessage;
         }
 
         @Override

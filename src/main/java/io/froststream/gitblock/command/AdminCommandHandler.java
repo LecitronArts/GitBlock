@@ -1,6 +1,7 @@
 package io.froststream.gitblock.command;
 
 import io.froststream.gitblock.checkout.ApplyJobStatus;
+import io.froststream.gitblock.repo.RepositoryRuntime;
 import io.froststream.gitblock.repo.RepositoryState;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,7 +21,8 @@ public final class AdminCommandHandler {
             env.send(sender, "common.no-permission-admin", env.adminPermissionNode());
             return;
         }
-        RepositoryState state = env.requireInitialized(sender);
+        RepositoryRuntime runtime = env.runtime(sender);
+        RepositoryState state = env.requireInitialized(sender, runtime);
         if (state == null) {
             return;
         }
@@ -32,7 +34,7 @@ public final class AdminCommandHandler {
             env.send(sender, "admin.checkpoint.no-active");
             return;
         }
-        env.checkpointService().forceCheckpoint(state.activeCommitId());
+        runtime.checkpointService().forceCheckpoint(state.activeCommitId());
         env.send(sender, "admin.checkpoint.requested", state.activeCommitId());
     }
 

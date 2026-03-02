@@ -1,6 +1,9 @@
 package io.froststream.gitblock.i18n;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
@@ -15,6 +18,10 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class I18nService {
+    private static final Map<String, String> REQUIRED_TEMPLATE_TOKENS =
+            Map.of(
+                    "common.no-permission-use", "{0}",
+                    "common.no-permission-admin", "{0}");
     private final JavaPlugin plugin;
     private final String defaultLocale;
     private final String fallbackLocale;
@@ -47,6 +54,8 @@ public final class I18nService {
         }
 
         bundles.clear();
+        loadBundleResource("lang/en_us.yml");
+        loadBundleResource("lang/zh_cn.yml");
         try (Stream<Path> paths = Files.list(langDir)) {
             paths.filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".yml"))
                     .forEach(this::loadBundleFile);
@@ -98,13 +107,61 @@ public final class I18nService {
         String fileName = path.getFileName().toString();
         String locale = LocaleSupport.normalizeLocale(fileName.substring(0, fileName.length() - 4));
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(path.toFile());
+        mergeBundle(locale, readStringEntries(yaml), true);
+    }
+
+    private void loadBundleResource(String resourcePath) {
+        String fileName = Path.of(resourcePath).getFileName().toString();
+        String locale = LocaleSupport.normalizeLocale(fileName.substring(0, fileName.length() - 4));
+        try (InputStream input = plugin.getResource(resourcePath)) {
+            if (input == null) {
+                plugin.getLogger().warning("Missing bundled language resource: " + resourcePath);
+                return;
+            }
+            YamlConfiguration yaml =
+                    YamlConfiguration.loadConfiguration(
+                            new InputStreamReader(input, StandardCharsets.UTF_8));
+            mergeBundle(locale, readStringEntries(yaml), false);
+        } catch (IOException ioException) {
+            throw new IllegalStateException("Failed to load bundled language resource " + resourcePath, ioException);
+        }
+    }
+
+    private void mergeBundle(String locale, Map<String, String> incoming, boolean fromDiskOverride) {
+        Map<String, String> target = bundles.computeIfAbsent(locale, ignored -> new ConcurrentHashMap<>());
+        for (Map.Entry<String, String> entry : incoming.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+            if (fromDiskOverride && missingRequiredToken(key, value)) {
+                plugin.getLogger()
+                        .warning(
+                                "Ignoring i18n override for locale '"
+                                        + locale
+                                        + "', key '"
+                                        + key
+                                        + "' because required token is missing.");
+                continue;
+            }
+            target.put(key, value);
+        }
+    }
+
+    private static Map<String, String> readStringEntries(YamlConfiguration yaml) {
         Map<String, String> map = new ConcurrentHashMap<>();
         for (String key : yaml.getKeys(true)) {
             if (yaml.isString(key)) {
                 map.put(key, yaml.getString(key, ""));
             }
         }
-        bundles.put(locale, map);
+        return map;
+    }
+
+    private static boolean missingRequiredToken(String key, String value) {
+        String token = REQUIRED_TEMPLATE_TOKENS.get(key);
+        if (token == null) {
+            return false;
+        }
+        return value == null || !value.contains(token);
     }
 
     private String resolveSenderLocale(CommandSender sender) {

@@ -1,6 +1,7 @@
 package io.froststream.gitblock.command;
 
 import io.froststream.gitblock.model.CommitSummary;
+import io.froststream.gitblock.repo.RepositoryRuntime;
 import io.froststream.gitblock.repo.RepositoryState;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -11,6 +12,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
+import org.bukkit.entity.Player;
 
 public final class GitBlockCommand implements CommandExecutor, TabCompleter {
     private final GitBlockCommandEnv env;
@@ -52,6 +54,8 @@ public final class GitBlockCommand implements CommandExecutor, TabCompleter {
             case "pos2" -> repository.handlePos(sender, false);
             case "init" -> repository.handleInit(sender, args);
             case "status" -> repository.handleStatus(sender);
+            case "repo" -> repository.handleRepo(sender, args);
+            case "commitmsg" -> repository.handleCommitMessage(sender, args);
             case "commit" -> history.handleCommit(sender, args);
             case "log" -> history.handleLog(sender, args);
             case "checkout" -> history.handleCheckout(sender, args);
@@ -74,7 +78,6 @@ public final class GitBlockCommand implements CommandExecutor, TabCompleter {
     @Override
     public List<String> onTabComplete(
             CommandSender sender, Command command, String alias, String[] args) {
-        RepositoryState state = env.repositoryStateService().getState();
         if (args.length == 1) {
             return filterPrefix(
                     List.of(
@@ -83,6 +86,8 @@ public final class GitBlockCommand implements CommandExecutor, TabCompleter {
                             "pos2",
                             "init",
                             "status",
+                            "repo",
+                            "commitmsg",
                             "commit",
                             "log",
                             "checkout",
@@ -99,12 +104,30 @@ public final class GitBlockCommand implements CommandExecutor, TabCompleter {
                             "menu"),
                     args[0]);
         }
+        if (args.length == 2 && "repo".equalsIgnoreCase(args[0])) {
+            return filterPrefix(List.of("list", "create", "use"), args[1]);
+        }
+        if (args.length == 3
+                && "repo".equalsIgnoreCase(args[0])
+                && "use".equalsIgnoreCase(args[1])
+                && sender instanceof Player player) {
+            return filterPrefix(env.listOwnedRepositories(player), args[2]);
+        }
+        if (args.length == 2 && "commitmsg".equalsIgnoreCase(args[0])) {
+            return filterPrefix(List.of("show", "set", "reset"), args[1]);
+        }
+
+        RepositoryRuntime runtime = runtimeForTabCompletion(sender);
+        if (runtime == null) {
+            return Collections.emptyList();
+        }
+        RepositoryState state = runtime.repositoryStateService().getState();
         if (args.length == 2 && ("switch".equalsIgnoreCase(args[0]) || "merge".equalsIgnoreCase(args[0]))) {
             return filterPrefix(new ArrayList<>(state.branchHeads().keySet()), args[1]);
         }
         if (args.length == 2 && ("checkout".equalsIgnoreCase(args[0]) || "revert".equalsIgnoreCase(args[0]))) {
             return filterPrefix(
-                    env.commitWorker().tail(20).stream()
+                    runtime.commitWorker().tail(20).stream()
                             .map(CommitSummary::commitId)
                             .collect(Collectors.toList()),
                     args[1]);
@@ -128,7 +151,7 @@ public final class GitBlockCommand implements CommandExecutor, TabCompleter {
             List<String> values = new ArrayList<>(state.branchHeads().keySet());
             values.add("HEAD");
             values.addAll(
-                    env.commitWorker().tail(20).stream()
+                    runtime.commitWorker().tail(20).stream()
                             .map(CommitSummary::commitId)
                             .collect(Collectors.toSet()));
             return filterPrefix(values, args[args.length - 1]);
@@ -144,12 +167,25 @@ public final class GitBlockCommand implements CommandExecutor, TabCompleter {
                 .collect(Collectors.toList());
     }
 
+    private RepositoryRuntime runtimeForTabCompletion(CommandSender sender) {
+        if (sender instanceof Player player) {
+            String activeRepository = env.activeRepository(player);
+            if (activeRepository == null || activeRepository.isBlank()) {
+                return null;
+            }
+            return env.runtimeManager().loadedRuntimeForRepository(activeRepository);
+        }
+        return env.runtimeManager().loadedRuntimeForRepository(env.defaultRepositoryName());
+    }
+
     private void sendHelp(CommandSender sender, String label) {
         sender.sendMessage(env.tr(sender, "help.title"));
         sender.sendMessage(env.tr(sender, "help.line-pos1", label));
         sender.sendMessage(env.tr(sender, "help.line-pos2", label));
         sender.sendMessage(env.tr(sender, "help.line-init", label));
         sender.sendMessage(env.tr(sender, "help.line-status", label));
+        sender.sendMessage(env.tr(sender, "help.line-repo", label));
+        sender.sendMessage(env.tr(sender, "help.line-commitmsg", label));
         sender.sendMessage(env.tr(sender, "help.line-commit", label));
         sender.sendMessage(env.tr(sender, "help.line-log", label));
         sender.sendMessage(env.tr(sender, "help.line-checkout", label));

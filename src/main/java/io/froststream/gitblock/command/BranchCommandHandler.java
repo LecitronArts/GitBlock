@@ -1,8 +1,9 @@
 package io.froststream.gitblock.command;
 
+import io.froststream.gitblock.model.BlockChangeRecord;
 import io.froststream.gitblock.model.MergeConflict;
 import io.froststream.gitblock.model.MergePlan;
-import io.froststream.gitblock.model.BlockChangeRecord;
+import io.froststream.gitblock.repo.RepositoryRuntime;
 import io.froststream.gitblock.repo.RepositoryState;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -30,39 +31,39 @@ public final class BranchCommandHandler {
         if (ticket == null) {
             return;
         }
-        RepositoryState state = env.requireInitialized(sender);
-        if (state == null) {
+        try {
+            RepositoryRuntime runtime = env.runtime(sender);
+            RepositoryState state = env.requireInitialized(sender, runtime);
+            if (state == null) {
+                return;
+            }
+            if (args.length < 2) {
+                env.send(sender, "branch.usage-branch");
+                return;
+            }
+            String name = env.sanitizeBranchName(args[1]);
+            if (name.isBlank()) {
+                env.send(sender, "branch.invalid-name");
+                return;
+            }
+            if (env.isReservedReferenceToken(name)) {
+                env.send(sender, "branch.reserved-name", name);
+                return;
+            }
+            if (state.hasBranch(name)) {
+                env.send(sender, "branch.already-exists", name);
+                return;
+            }
+            runtime.repositoryStateService().update(state.withNewBranch(name, state.activeCommitId()));
+            env.send(sender, "branch.created", name, env.nullable(state.activeCommitId()));
+        } finally {
             ticket.close();
-            return;
         }
-        if (args.length < 2) {
-            env.send(sender, "branch.usage-branch");
-            ticket.close();
-            return;
-        }
-        String name = env.sanitizeBranchName(args[1]);
-        if (name.isBlank()) {
-            env.send(sender, "branch.invalid-name");
-            ticket.close();
-            return;
-        }
-        if (env.isReservedReferenceToken(name)) {
-            env.send(sender, "branch.reserved-name", name);
-            ticket.close();
-            return;
-        }
-        if (state.hasBranch(name)) {
-            env.send(sender, "branch.already-exists", name);
-            ticket.close();
-            return;
-        }
-        env.repositoryStateService().update(state.withNewBranch(name, state.activeCommitId()));
-        env.send(sender, "branch.created", name, env.nullable(state.activeCommitId()));
-        ticket.close();
     }
 
     public void handleBranches(CommandSender sender) {
-        RepositoryState state = env.requireInitialized(sender);
+        RepositoryRuntime runtime = env.runtime(sender);
+        RepositoryState state = env.requireInitialized(sender, runtime);
         if (state == null) {
             return;
         }
@@ -80,7 +81,8 @@ public final class BranchCommandHandler {
     }
 
     public void handleSwitch(CommandSender sender, String[] args) {
-        RepositoryState state = env.requireInitialized(sender);
+        RepositoryRuntime runtime = env.runtime(sender);
+        RepositoryState state = env.requireInitialized(sender, runtime);
         if (state == null) {
             return;
         }
@@ -92,7 +94,7 @@ public final class BranchCommandHandler {
             env.send(sender, "branch.usage-switch");
             return;
         }
-        if (env.dirtyMap().size() > 0) {
+        if (runtime.dirtyMap().size() > 0) {
             env.send(sender, "branch.working-tree-dirty");
             return;
         }
@@ -108,7 +110,8 @@ public final class BranchCommandHandler {
         }
 
         String targetCommit = state.headOf(targetBranch);
-        transitions.runTransition(sender, state.activeCommitId(), targetCommit, true, false, targetBranch);
+        transitions.runTransition(
+                sender, runtime, state.activeCommitId(), targetCommit, true, false, targetBranch);
     }
 
     public void handleMerge(CommandSender sender, String[] args) {
@@ -116,7 +119,8 @@ public final class BranchCommandHandler {
         if (ticket == null) {
             return;
         }
-        RepositoryState state = env.requireInitialized(sender);
+        RepositoryRuntime runtime = env.runtime(sender);
+        RepositoryState state = env.requireInitialized(sender, runtime);
         if (state == null) {
             ticket.close();
             return;
@@ -126,7 +130,7 @@ public final class BranchCommandHandler {
             ticket.close();
             return;
         }
-        if (env.dirtyMap().size() > 0) {
+        if (runtime.dirtyMap().size() > 0) {
             env.send(sender, "branch.working-tree-dirty");
             ticket.close();
             return;
@@ -164,13 +168,13 @@ public final class BranchCommandHandler {
         if (oursHead == null) {
             env.send(sender, "branch.fast-forward-empty");
             transitions.runTransitionWithTicket(
-                    sender, null, theirsHead, false, true, state.currentBranch(), ticket);
+                    sender, runtime, null, theirsHead, false, true, state.currentBranch(), ticket);
             return;
         }
 
         env.send(sender, "branch.planning-merge", theirsBranch, state.currentBranch());
         try {
-            env.transitionService().planMerge(oursHead, theirsHead)
+            runtime.transitionService().planMerge(oursHead, theirsHead)
                     .whenComplete(
                             (mergePlan, throwable) ->
                                     Bukkit.getScheduler()
@@ -191,6 +195,7 @@ public final class BranchCommandHandler {
                                                                         }
                                                                         continueMerge(
                                                                                 sender,
+                                                                                runtime,
                                                                                 state,
                                                                                 theirsBranch,
                                                                                 mergePlan,
@@ -204,12 +209,18 @@ public final class BranchCommandHandler {
 
     private void continueMerge(
             CommandSender sender,
+            RepositoryRuntime runtime,
             RepositoryState state,
             String theirsBranch,
             MergePlan mergePlan,
             GitBlockCommandEnv.MutationTicket ticket) {
         if (mergePlan.hasConflicts()) {
-            Path conflictFile = writeConflictFile(state.repoName(), theirsBranch, mergePlan.conflicts());
+            Path conflictFile =
+                    writeConflictFile(
+                            runtime.conflictsDirectory(),
+                            state.repoName(),
+                            theirsBranch,
+                            mergePlan.conflicts());
             env.send(
                     sender,
                     "branch.conflicts-detected",
@@ -237,79 +248,85 @@ public final class BranchCommandHandler {
                 env.enqueueApplyJob(
                         sender,
                         "merge apply",
-                                mergePlan.applyChanges(),
-                                summary ->
-                                        env.runGuarded(
-                                                sender,
-                                                ticket,
-                                                () -> {
-                                                    if (summary.failed() > 0) {
-                                                        env.dirtyMap().restoreAll(summary.appliedDelta());
-                                                        env.send(
-                                                                sender,
-                                                                "branch.merge-apply-failed",
-                                                                summary.failed());
-                                                        ticket.close();
-                                                        return;
-                                                    }
-                                                    env.commitWorker().submitCommit(
-                                                                    "merge " + theirsBranch + " into " + state.currentBranch(),
-                                                                    env.resolveAuthor(sender),
-                                                                    state.currentBranch(),
-                                                                    oursHead,
-                                                                    theirsHead,
-                                                                    mergePlan.applyChanges())
-                                                            .whenComplete(
-                                                                    (result, throwable) ->
-                                                                            Bukkit.getScheduler()
-                                                                                    .runTask(
-                                                                                            env.plugin(),
-                                                                                            () ->
-                                                                                                    env.runGuarded(
-                                                                                                            sender,
-                                                                                                            ticket,
-                                                                                                            () -> {
-                                                                                                                if (throwable != null) {
-                                                                                                                    queueMergeCommitFailureRecovery(
-                                                                                                                            sender,
-                                                                                                                            theirsBranch,
-                                                                                                                            rollbackChanges,
-                                                                                                                            throwable,
-                                                                                                                            ticket);
-                                                                                                                    return;
-                                                                                                                }
-                                                                                                                RepositoryState latest =
-                                                                                                                        env.repositoryStateService()
-                                                                                                                                .getState();
-                                                                                                                RepositoryState updated =
-                                                                                                                        env.advanceBranchAfterAsyncCommit(
-                                                                                                                                latest,
-                                                                                                                                state.currentBranch(),
-                                                                                                                                oursHead,
-                                                                                                                                result.commitId());
-                                                                                                                env.repositoryStateService()
-                                                                                                                        .update(updated);
-                                                                                                                env.checkpointService()
-                                                                                                                        .maybeCreateCheckpoint(
-                                                                                                                                result);
-                                                                                                                if (updated == latest) {
-                                                                                                                    env.markChangesDirty(
-                                                                                                                            mergePlan.applyChanges());
-                                                                                                                    env.send(
-                                                                                                                            sender,
-                                                                                                                            "branch.merge-commit-saved-dirty",
-                                                                                                                            result.commitId());
-                                                                                                                    ticket.close();
-                                                                                                                    return;
-                                                                                                                }
-                                                                                                                env.send(
-                                                                                                                        sender,
-                                                                                                                        "branch.merge-commit-created",
-                                                                                                                        result.commitId(),
-                                                                                                                        result.changeCount());
-                                                                                                                ticket.close();
-                                                                                                            })));
-                                                }));
+                        mergePlan.applyChanges(),
+                        summary ->
+                                env.runGuarded(
+                                        sender,
+                                        ticket,
+                                        () -> {
+                                            if (summary.failed() > 0) {
+                                                runtime.dirtyMap().restoreAll(summary.appliedDelta());
+                                                env.send(
+                                                        sender,
+                                                        "branch.merge-apply-failed",
+                                                        summary.failed());
+                                                ticket.close();
+                                                return;
+                                            }
+                                            runtime.commitWorker()
+                                                    .submitCommit(
+                                                            "merge "
+                                                                    + theirsBranch
+                                                                    + " into "
+                                                                    + state.currentBranch(),
+                                                            env.resolveAuthor(sender),
+                                                            state.currentBranch(),
+                                                            oursHead,
+                                                            theirsHead,
+                                                            mergePlan.applyChanges())
+                                                    .whenComplete(
+                                                            (result, throwable) ->
+                                                                    Bukkit.getScheduler()
+                                                                            .runTask(
+                                                                                    env.plugin(),
+                                                                                    () ->
+                                                                                            env.runGuarded(
+                                                                                                    sender,
+                                                                                                    ticket,
+                                                                                                    () -> {
+                                                                                                        if (throwable != null) {
+                                                                                                            queueMergeCommitFailureRecovery(
+                                                                                                                    sender,
+                                                                                                                    runtime,
+                                                                                                                    theirsBranch,
+                                                                                                                    rollbackChanges,
+                                                                                                                    throwable,
+                                                                                                                    ticket);
+                                                                                                            return;
+                                                                                                        }
+                                                                                                        RepositoryState latest =
+                                                                                                                runtime.repositoryStateService()
+                                                                                                                        .getState();
+                                                                                                        RepositoryState updated =
+                                                                                                                env.advanceBranchAfterAsyncCommit(
+                                                                                                                        latest,
+                                                                                                                        state.currentBranch(),
+                                                                                                                        oursHead,
+                                                                                                                        result.commitId());
+                                                                                                        runtime.repositoryStateService()
+                                                                                                                .update(updated);
+                                                                                                        runtime.checkpointService()
+                                                                                                                .maybeCreateCheckpoint(
+                                                                                                                        result);
+                                                                                                        if (updated == latest) {
+                                                                                                            env.markChangesDirty(
+                                                                                                                    runtime,
+                                                                                                                    mergePlan.applyChanges());
+                                                                                                            env.send(
+                                                                                                                    sender,
+                                                                                                                    "branch.merge-commit-saved-dirty",
+                                                                                                                    result.commitId());
+                                                                                                            ticket.close();
+                                                                                                            return;
+                                                                                                        }
+                                                                                                        env.send(
+                                                                                                                sender,
+                                                                                                                "branch.merge-commit-created",
+                                                                                                                result.commitId(),
+                                                                                                                result.changeCount());
+                                                                                                        ticket.close();
+                                                                                                    })));
+                                        }));
         if (jobId == null) {
             ticket.close();
             return;
@@ -319,6 +336,7 @@ public final class BranchCommandHandler {
 
     private void queueMergeCommitFailureRecovery(
             CommandSender sender,
+            RepositoryRuntime runtime,
             String theirsBranch,
             List<BlockChangeRecord> recoveryChanges,
             Throwable throwable,
@@ -329,34 +347,40 @@ public final class BranchCommandHandler {
                 env.enqueueApplyJob(
                         sender,
                         "merge rollback recovery",
-                                recoveryChanges,
-                                summary ->
-                                        env.runGuarded(
-                                                sender,
-                                                ticket,
-                                                () -> {
-                                                    if (summary.failed() > 0) {
-                                                        env.markRestorationFailuresDirty(recoveryChanges, summary.appliedDelta());
-                                                        env.send(
-                                                                sender,
-                                                                "branch.merge-rollback-partial-fail",
-                                                                summary.failed());
-                                                        ticket.close();
-                                                        return;
-                                                    }
-                                                    env.send(sender, "branch.merge-rollback-complete", theirsBranch);
-                                                    ticket.close();
-                                                }));
+                        recoveryChanges,
+                        summary ->
+                                env.runGuarded(
+                                        sender,
+                                        ticket,
+                                        () -> {
+                                            if (summary.failed() > 0) {
+                                                env.markRestorationFailuresDirty(
+                                                        runtime,
+                                                        recoveryChanges,
+                                                        summary.appliedDelta());
+                                                env.send(
+                                                        sender,
+                                                        "branch.merge-rollback-partial-fail",
+                                                        summary.failed());
+                                                ticket.close();
+                                                return;
+                                            }
+                                            env.send(sender, "branch.merge-rollback-complete", theirsBranch);
+                                            ticket.close();
+                                        }));
         if (recoveryJobId == null) {
+            env.markRestorationFailuresDirty(runtime, recoveryChanges, Map.of());
+            env.send(sender, "branch.merge-rollback-partial-fail", recoveryChanges.size());
             ticket.close();
             return;
         }
         env.send(sender, "branch.merge-rollback-queued", recoveryJobId, recoveryChanges.size());
     }
 
-    private Path writeConflictFile(String repoName, String theirsBranch, List<MergeConflict> conflicts) {
+    private Path writeConflictFile(
+            Path conflictsDirectory, String repoName, String theirsBranch, List<MergeConflict> conflicts) {
         try {
-            Files.createDirectories(env.conflictsDir());
+            Files.createDirectories(conflictsDirectory);
             String fileName =
                     safeFileToken(repoName)
                             + "-"
@@ -364,7 +388,7 @@ public final class BranchCommandHandler {
                             + "-"
                             + Instant.now().toEpochMilli()
                             + ".conflicts";
-            Path file = env.conflictsDir().resolve(fileName);
+            Path file = conflictsDirectory.resolve(fileName);
             List<String> lines = new ArrayList<>();
             lines.add("# GitBlock merge conflicts");
             lines.add("# theirs=" + theirsBranch);

@@ -1,21 +1,22 @@
 package io.froststream.gitblock.command;
 
-import io.froststream.gitblock.checkpoint.CheckpointService;
-import io.froststream.gitblock.checkout.ApplyScheduler;
 import io.froststream.gitblock.checkout.ApplyEnqueueResult;
-import io.froststream.gitblock.commit.CommitTransitionService;
-import io.froststream.gitblock.commit.CommitWorker;
-import io.froststream.gitblock.diff.DirtyMap;
+import io.froststream.gitblock.checkout.ApplyScheduler;
 import io.froststream.gitblock.i18n.I18nService;
 import io.froststream.gitblock.model.ApplySummary;
 import io.froststream.gitblock.model.BlockChangeRecord;
 import io.froststream.gitblock.model.DirtyEntry;
 import io.froststream.gitblock.model.LocationKey;
+import io.froststream.gitblock.repo.PlayerRepositoryStore;
+import io.froststream.gitblock.repo.RepositoryLimitResolver;
+import io.froststream.gitblock.repo.RepositoryRuntime;
+import io.froststream.gitblock.repo.RepositoryRuntimeManager;
 import io.froststream.gitblock.repo.RepositoryState;
-import io.froststream.gitblock.repo.RepositoryStateService;
 import io.froststream.gitblock.repo.SelectionService;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -34,82 +35,63 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class GitBlockCommandEnv {
+    private static final DateTimeFormatter COMMIT_TEMPLATE_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
+
     private final JavaPlugin plugin;
-    private final DirtyMap dirtyMap;
-    private final CommitWorker commitWorker;
-    private final CommitTransitionService transitionService;
+    private final RepositoryRuntimeManager runtimeManager;
     private final ApplyScheduler applyScheduler;
-    private final CheckpointService checkpointService;
-    private final RepositoryStateService repositoryStateService;
     private final SelectionService selectionService;
     private final I18nService i18n;
-    private final Path conflictsDir;
-    private final String storageRepoName;
     private final boolean serializeMutations;
     private final String usePermission;
     private final String adminPermission;
     private final String jobsPermission;
+    private final RepositoryLimitResolver repositoryLimitResolver;
+    private final String defaultCommitMessageTemplate;
+    private final String defaultRepositoryName;
     private final AtomicReference<String> activeMutation = new AtomicReference<>();
 
     public GitBlockCommandEnv(
             JavaPlugin plugin,
-            DirtyMap dirtyMap,
-            CommitWorker commitWorker,
-            CommitTransitionService transitionService,
+            RepositoryRuntimeManager runtimeManager,
             ApplyScheduler applyScheduler,
-            CheckpointService checkpointService,
-            RepositoryStateService repositoryStateService,
             SelectionService selectionService,
             I18nService i18n,
-            Path conflictsDir,
-            String storageRepoName,
             boolean serializeMutations,
             String usePermission,
             String adminPermission,
-            String jobsPermission) {
+            String jobsPermission,
+            RepositoryLimitResolver repositoryLimitResolver,
+            String defaultCommitMessageTemplate,
+            String defaultRepositoryName) {
         this.plugin = plugin;
-        this.dirtyMap = dirtyMap;
-        this.commitWorker = commitWorker;
-        this.transitionService = transitionService;
+        this.runtimeManager = runtimeManager;
         this.applyScheduler = applyScheduler;
-        this.checkpointService = checkpointService;
-        this.repositoryStateService = repositoryStateService;
         this.selectionService = selectionService;
         this.i18n = i18n;
-        this.conflictsDir = conflictsDir;
-        this.storageRepoName = storageRepoName;
         this.serializeMutations = serializeMutations;
         this.usePermission = usePermission;
         this.adminPermission = adminPermission;
         this.jobsPermission = jobsPermission;
+        this.repositoryLimitResolver = repositoryLimitResolver;
+        this.defaultCommitMessageTemplate =
+                defaultCommitMessageTemplate == null || defaultCommitMessageTemplate.isBlank()
+                        ? "manual commit by {player} in {repo} at {time}"
+                        : defaultCommitMessageTemplate;
+        this.defaultRepositoryName = defaultRepositoryName;
     }
 
     public JavaPlugin plugin() {
         return plugin;
     }
 
-    public DirtyMap dirtyMap() {
-        return dirtyMap;
-    }
-
-    public CommitWorker commitWorker() {
-        return commitWorker;
-    }
-
-    public CommitTransitionService transitionService() {
-        return transitionService;
+    public RepositoryRuntimeManager runtimeManager() {
+        return runtimeManager;
     }
 
     public ApplyScheduler applyScheduler() {
         return applyScheduler;
-    }
-
-    public CheckpointService checkpointService() {
-        return checkpointService;
-    }
-
-    public RepositoryStateService repositoryStateService() {
-        return repositoryStateService;
     }
 
     public SelectionService selectionService() {
@@ -118,14 +100,6 @@ public final class GitBlockCommandEnv {
 
     public I18nService i18n() {
         return i18n;
-    }
-
-    public Path conflictsDir() {
-        return conflictsDir;
-    }
-
-    public String storageRepoName() {
-        return storageRepoName;
     }
 
     public boolean serializeMutationsEnabled() {
@@ -142,6 +116,10 @@ public final class GitBlockCommandEnv {
 
     public String jobsPermissionNode() {
         return jobsPermission;
+    }
+
+    public String defaultRepositoryName() {
+        return defaultRepositoryName;
     }
 
     public boolean hasUsePermission(CommandSender sender) {
@@ -189,8 +167,29 @@ public final class GitBlockCommandEnv {
         return new MutationTicket(this, normalized, false);
     }
 
-    public RepositoryState requireInitialized(CommandSender sender) {
-        RepositoryState state = repositoryStateService.getState();
+    public RepositoryRuntime runtime(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            return runtimeManager.runtimeForRepository(defaultRepositoryName);
+        }
+        int maxRepositories = maxRepositories(sender);
+        RepositoryRuntime runtime =
+                runtimeManager.runtimeForPlayer(player, maxRepositories, sanitizeRepoName(player.getName()));
+        if (runtime == null) {
+            send(
+                    sender,
+                    "repository.repo-limit-reached",
+                    runtimeManager.ownedRepositoryCount(player.getUniqueId()),
+                    maxRepositories);
+            return null;
+        }
+        return runtime;
+    }
+
+    public RepositoryState requireInitialized(CommandSender sender, RepositoryRuntime runtime) {
+        if (runtime == null) {
+            return null;
+        }
+        RepositoryState state = runtime.repositoryStateService().getState();
         if (!state.initialized()) {
             send(sender, "common.repository-not-initialized");
             return null;
@@ -198,7 +197,7 @@ public final class GitBlockCommandEnv {
         return state;
     }
 
-    public String resolveCommitToken(String token, RepositoryState state) {
+    public String resolveCommitToken(String token, RepositoryState state, RepositoryRuntime runtime) {
         if ("HEAD".equalsIgnoreCase(token)) {
             return state.activeCommitId();
         }
@@ -208,7 +207,7 @@ public final class GitBlockCommandEnv {
         if (state.hasBranch(token)) {
             return state.headOf(token);
         }
-        if (commitWorker.hasCommit(token)) {
+        if (runtime.commitWorker().hasCommit(token)) {
             return token;
         }
         return null;
@@ -253,9 +252,9 @@ public final class GitBlockCommandEnv {
         return reversed;
     }
 
-    public void markChangesDirty(List<BlockChangeRecord> changes) {
+    public void markChangesDirty(RepositoryRuntime runtime, List<BlockChangeRecord> changes) {
         for (BlockChangeRecord change : changes) {
-            dirtyMap.recordChange(
+            runtime.dirtyMap().recordChange(
                     new LocationKey(change.world(), change.x(), change.y(), change.z()),
                     change.oldState(),
                     change.newState());
@@ -263,11 +262,14 @@ public final class GitBlockCommandEnv {
     }
 
     public void markRestorationFailuresDirty(
-            List<BlockChangeRecord> restorationChanges, Map<LocationKey, DirtyEntry> appliedDelta) {
-        markRestorationFailuresDirty(restorationChanges, appliedDelta, null);
+            RepositoryRuntime runtime,
+            List<BlockChangeRecord> restorationChanges,
+            Map<LocationKey, DirtyEntry> appliedDelta) {
+        markRestorationFailuresDirty(runtime, restorationChanges, appliedDelta, null);
     }
 
     public void markRestorationFailuresDirty(
+            RepositoryRuntime runtime,
             List<BlockChangeRecord> restorationChanges,
             Map<LocationKey, DirtyEntry> appliedDelta,
             Set<LocationKey> expectedRestoredKeys) {
@@ -282,13 +284,16 @@ public final class GitBlockCommandEnv {
             if (expected != null && !expected.contains(key)) {
                 continue;
             }
-            dirtyMap.recordChange(key, change.newState(), change.oldState());
+            runtime.dirtyMap().recordChange(key, change.newState(), change.oldState());
         }
     }
 
     public String sanitizeRepoName(String raw) {
         String sanitized = raw.replaceAll("[^a-zA-Z0-9_\\-]", "");
-        return sanitized.isBlank() ? "default" : sanitized.toLowerCase(Locale.ROOT);
+        if (sanitized.isBlank()) {
+            return "";
+        }
+        return sanitized.toLowerCase(Locale.ROOT);
     }
 
     public String sanitizeBranchName(String raw) {
@@ -365,12 +370,100 @@ public final class GitBlockCommandEnv {
             runnable.run();
         } catch (Throwable throwable) {
             plugin.getLogger()
-                    .log(Level.SEVERE, "Unhandled GitBlock operation error (" + nullable(activeMutation.get()) + ")", throwable);
+                    .log(
+                            Level.SEVERE,
+                            "Unhandled GitBlock operation error (" + nullable(activeMutation.get()) + ")",
+                            throwable);
             send(sender, "common.operation-failed", rootMessage(throwable));
             if (ticket != null) {
                 ticket.close();
             }
         }
+    }
+
+    public int maxRepositories(CommandSender sender) {
+        return repositoryLimitResolver.resolveMaxRepositories(sender);
+    }
+
+    public int ownedRepositories(Player player) {
+        return runtimeManager.ownedRepositoryCount(player.getUniqueId());
+    }
+
+    public List<String> listOwnedRepositories(Player player) {
+        return runtimeManager.listOwnedRepositories(player.getUniqueId());
+    }
+
+    public String activeRepository(Player player) {
+        return runtimeManager.activeRepository(player.getUniqueId());
+    }
+
+    public RepositoryRuntimeManager.RepositoryCreateStatus createRepositoryForPlayer(
+            Player player, String repositoryName) {
+        return runtimeManager.createRepositoryForPlayer(
+                player.getUniqueId(), repositoryName, maxRepositories(player));
+    }
+
+    public boolean useRepository(Player player, String repositoryName) {
+        return runtimeManager.setActiveRepository(player.getUniqueId(), repositoryName);
+    }
+
+    public boolean isRepositoryOwner(Player player, String repositoryName) {
+        return runtimeManager.isRepositoryOwner(player.getUniqueId(), repositoryName);
+    }
+
+    public boolean repositoryExists(String repositoryName) {
+        return runtimeManager.repositoryExists(repositoryName);
+    }
+
+    public String resolveCommitMessage(CommandSender sender, RepositoryRuntime runtime, int dirtyCount) {
+        RepositoryState state = runtime.repositoryStateService().getState();
+        String template = resolveCommitMessageTemplate(sender);
+        String resolved =
+                template.replace("{player}", sender.getName())
+                        .replace("{repo}", runtime.repositoryName())
+                        .replace("{branch}", state.currentBranch())
+                        .replace("{time}", COMMIT_TEMPLATE_TIME_FORMATTER.format(Instant.now()))
+                        .replace("{dirty}", Integer.toString(Math.max(0, dirtyCount)));
+        String normalized = resolved.trim().replaceAll("\\s+", " ");
+        if (normalized.isBlank()) {
+            return "manual commit";
+        }
+        return normalized;
+    }
+
+    public String resolveCommitMessageTemplate(CommandSender sender) {
+        if (sender instanceof Player player) {
+            String custom =
+                    runtimeManager.playerRepositoryStore().commitMessageTemplate(player.getUniqueId());
+            if (custom != null && !custom.isBlank()) {
+                return custom;
+            }
+        }
+        return defaultCommitMessageTemplate;
+    }
+
+    public void setCommitMessageTemplate(Player player, String template) {
+        runtimeManager.playerRepositoryStore().setCommitMessageTemplate(player.getUniqueId(), template);
+    }
+
+    public void clearCommitMessageTemplate(Player player) {
+        runtimeManager.playerRepositoryStore().clearCommitMessageTemplate(player.getUniqueId());
+    }
+
+    public String playerCommitMessageTemplate(Player player) {
+        String custom = runtimeManager.playerRepositoryStore().commitMessageTemplate(player.getUniqueId());
+        if (custom == null || custom.isBlank()) {
+            return null;
+        }
+        return custom;
+    }
+
+    public String defaultCommitMessageTemplate() {
+        return defaultCommitMessageTemplate;
+    }
+
+    public PlayerRepositoryStore playerRepositoryStore() {
+        return runtimeManager.playerRepositoryStore();
     }
 
     private void releaseMutation(String description) {

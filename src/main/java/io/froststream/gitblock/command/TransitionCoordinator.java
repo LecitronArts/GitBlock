@@ -1,5 +1,6 @@
 package io.froststream.gitblock.command;
 
+import io.froststream.gitblock.repo.RepositoryRuntime;
 import io.froststream.gitblock.repo.RepositoryState;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
@@ -13,6 +14,7 @@ public final class TransitionCoordinator {
 
     public void runTransition(
             CommandSender sender,
+            RepositoryRuntime runtime,
             String fromCommit,
             String targetCommit,
             boolean switchBranchAfterSuccess,
@@ -30,6 +32,7 @@ public final class TransitionCoordinator {
         }
         runTransitionWithTicket(
                 sender,
+                runtime,
                 fromCommit,
                 targetCommit,
                 switchBranchAfterSuccess,
@@ -40,6 +43,7 @@ public final class TransitionCoordinator {
 
     public void runTransitionWithTicket(
             CommandSender sender,
+            RepositoryRuntime runtime,
             String fromCommit,
             String targetCommit,
             boolean switchBranchAfterSuccess,
@@ -57,7 +61,7 @@ public final class TransitionCoordinator {
                 env.nullable(fromCommit),
                 env.nullable(targetCommit));
         try {
-            env.transitionService().buildTransition(fromCommit, targetCommit)
+            runtime.transitionService().buildTransition(fromCommit, targetCommit)
                     .whenComplete(
                             (changes, throwable) ->
                                     Bukkit.getScheduler()
@@ -73,100 +77,101 @@ public final class TransitionCoordinator {
                                                                                     sender,
                                                                                     "transition.checkout-failed",
                                                                                     env.rootMessage(throwable));
-                                                                        ticket.close();
-                                                                        return;
-                                                                    }
-                                                                    if (changes.isEmpty()) {
-                                                                        RepositoryState latest =
-                                                                                env.repositoryStateService()
-                                                                                        .getState();
-                                                                        RepositoryState updated =
-                                                                                latest.withActiveCommitOnly(targetCommit);
-                                                                        if (switchBranchAfterSuccess) {
-                                                                            updated =
-                                                                                    updated.withCurrentBranch(
-                                                                                            targetBranchName,
-                                                                                            targetCommit);
+                                                                            ticket.close();
+                                                                            return;
                                                                         }
-                                                                        if (advanceTargetBranchHeadAfterSuccess) {
-                                                                            updated =
-                                                                                    updated.withBranchHead(
-                                                                                            targetBranchName,
+                                                                        if (changes.isEmpty()) {
+                                                                            RepositoryState latest =
+                                                                                    runtime.repositoryStateService()
+                                                                                            .getState();
+                                                                            RepositoryState updated =
+                                                                                    latest.withActiveCommitOnly(
                                                                                             targetCommit);
+                                                                            if (switchBranchAfterSuccess) {
+                                                                                updated =
+                                                                                        updated.withCurrentBranch(
+                                                                                                targetBranchName,
+                                                                                                targetCommit);
+                                                                            }
+                                                                            if (advanceTargetBranchHeadAfterSuccess) {
+                                                                                updated =
+                                                                                        updated.withBranchHead(
+                                                                                                targetBranchName,
+                                                                                                targetCommit);
+                                                                            }
+                                                                            runtime.repositoryStateService().update(updated);
+                                                                            env.send(sender, "transition.already-target");
+                                                                            ticket.close();
+                                                                            return;
                                                                         }
-                                                                        env.repositoryStateService().update(updated);
-                                                                        env.send(sender, "transition.already-target");
-                                                                        ticket.close();
-                                                                        return;
-                                                                    }
-                                                                    if (env.isApplyQueueBusy()) {
-                                                                        env.send(
-                                                                                sender,
-                                                                                "transition.apply-queue-became-busy");
-                                                                        ticket.close();
-                                                                        return;
-                                                                    }
-
-                                                                    String jobId =
-                                                                            env.enqueueApplyJob(
+                                                                        if (env.isApplyQueueBusy()) {
+                                                                            env.send(
                                                                                     sender,
-                                                                                    "transition apply",
-                                                                                            changes,
-                                                                                            summary ->
-                                                                                                    env.runGuarded(
-                                                                                                            sender,
-                                                                                                            ticket,
-                                                                                                            () -> {
-                                                                                                                if (summary.failed() > 0) {
-                                                                                                                    env.dirtyMap()
-                                                                                                                            .restoreAll(
-                                                                                                                                    summary.appliedDelta());
-                                                                                                                    env.send(
-                                                                                                                            sender,
-                                                                                                                            "transition.finished-with-failures",
-                                                                                                                            summary.failed());
-                                                                                                                    ticket.close();
-                                                                                                                    return;
-                                                                                                                }
-                                                                                                                RepositoryState latest =
-                                                                                                                        env.repositoryStateService()
-                                                                                                                                .getState();
-                                                                                                                RepositoryState updated =
-                                                                                                                        latest.withActiveCommitOnly(
-                                                                                                                                targetCommit);
-                                                                                                                if (switchBranchAfterSuccess) {
-                                                                                                                    updated =
-                                                                                                                            updated.withCurrentBranch(
-                                                                                                                                    targetBranchName,
-                                                                                                                                    targetCommit);
-                                                                                                                }
-                                                                                                                if (advanceTargetBranchHeadAfterSuccess) {
-                                                                                                                    updated =
-                                                                                                                            updated.withBranchHead(
-                                                                                                                                    targetBranchName,
-                                                                                                                                    targetCommit);
-                                                                                                                }
-                                                                                                                env.repositoryStateService()
-                                                                                                                        .update(updated);
+                                                                                    "transition.apply-queue-became-busy");
+                                                                            ticket.close();
+                                                                            return;
+                                                                        }
+
+                                                                        String jobId =
+                                                                                env.enqueueApplyJob(
+                                                                                        sender,
+                                                                                        "transition apply",
+                                                                                        changes,
+                                                                                        summary ->
+                                                                                                env.runGuarded(
+                                                                                                        sender,
+                                                                                                        ticket,
+                                                                                                        () -> {
+                                                                                                            if (summary.failed() > 0) {
+                                                                                                                runtime.dirtyMap()
+                                                                                                                        .restoreAll(
+                                                                                                                                summary.appliedDelta());
                                                                                                                 env.send(
                                                                                                                         sender,
-                                                                                                                        "transition.complete",
-                                                                                                                        env.nullable(
-                                                                                                                                fromCommit),
-                                                                                                                        env.nullable(
-                                                                                                                                targetCommit),
-                                                                                                                        summary.applied());
+                                                                                                                        "transition.finished-with-failures",
+                                                                                                                        summary.failed());
                                                                                                                 ticket.close();
-                                                                                                            }));
-                                                                    if (jobId == null) {
-                                                                        ticket.close();
-                                                                        return;
-                                                                    }
-                                                                    env.send(
-                                                                            sender,
-                                                                            "transition.job-queued",
-                                                                            jobId,
-                                                                            changes.size());
+                                                                                                                return;
+                                                                                                            }
+                                                                                                            RepositoryState latest =
+                                                                                                                    runtime.repositoryStateService()
+                                                                                                                            .getState();
+                                                                                                            RepositoryState updated =
+                                                                                                                    latest.withActiveCommitOnly(
+                                                                                                                            targetCommit);
+                                                                                                            if (switchBranchAfterSuccess) {
+                                                                                                                updated =
+                                                                                                                        updated.withCurrentBranch(
+                                                                                                                                targetBranchName,
+                                                                                                                                targetCommit);
+                                                                                                            }
+                                                                                                            if (advanceTargetBranchHeadAfterSuccess) {
+                                                                                                                updated =
+                                                                                                                        updated.withBranchHead(
+                                                                                                                                targetBranchName,
+                                                                                                                                targetCommit);
+                                                                                                            }
+                                                                                                            runtime.repositoryStateService()
+                                                                                                                    .update(updated);
+                                                                                                            env.send(
+                                                                                                                    sender,
+                                                                                                                    "transition.complete",
+                                                                                                                    env.nullable(
+                                                                                                                            fromCommit),
+                                                                                                                    env.nullable(
+                                                                                                                            targetCommit),
+                                                                                                                    summary.applied());
+                                                                                                            ticket.close();
+                                                                                                        }));
+                                                                        if (jobId == null) {
+                                                                            ticket.close();
+                                                                            return;
+                                                                        }
+                                                                        env.send(
+                                                                                sender,
+                                                                                "transition.job-queued",
+                                                                                jobId,
+                                                                                changes.size());
                                                                     })));
         } catch (Throwable throwable) {
             env.send(sender, "transition.failed-start", env.rootMessage(throwable));

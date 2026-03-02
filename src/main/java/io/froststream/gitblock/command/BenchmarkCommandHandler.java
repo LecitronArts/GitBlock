@@ -3,6 +3,7 @@ package io.froststream.gitblock.command;
 import io.froststream.gitblock.model.BlockChangeRecord;
 import io.froststream.gitblock.model.LocationKey;
 import io.froststream.gitblock.repo.RepoRegion;
+import io.froststream.gitblock.repo.RepositoryRuntime;
 import io.froststream.gitblock.repo.RepositoryState;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -36,7 +37,8 @@ public final class BenchmarkCommandHandler {
             env.send(sender, "common.no-permission-admin", env.adminPermissionNode());
             return;
         }
-        RepositoryState state = env.requireInitialized(sender);
+        RepositoryRuntime runtime = env.runtime(sender);
+        RepositoryState state = env.requireInitialized(sender, runtime);
         if (state == null) {
             return;
         }
@@ -51,13 +53,14 @@ public final class BenchmarkCommandHandler {
             return;
         }
         if ("run".equals(sub)) {
-            runBenchmark(sender, state, args);
+            runBenchmark(sender, runtime, state, args);
             return;
         }
         sendUsage(sender);
     }
 
-    private void runBenchmark(CommandSender sender, RepositoryState state, String[] args) {
+    private void runBenchmark(
+            CommandSender sender, RepositoryRuntime runtime, RepositoryState state, String[] args) {
         GitBlockCommandEnv.MutationTicket ticket = env.tryAcquireMutation(sender, "benchmark run");
         if (ticket == null) {
             return;
@@ -123,7 +126,17 @@ public final class BenchmarkCommandHandler {
                     total,
                     snapshotProcessId,
                     ticket,
-                    changes -> queueBenchmark(sender, state, width, depth, height, changes, autoRollback, ticket));
+                    changes ->
+                            queueBenchmark(
+                                    sender,
+                                    runtime,
+                                    state,
+                                    width,
+                                    depth,
+                                    height,
+                                    changes,
+                                    autoRollback,
+                                    ticket));
         } catch (Throwable throwable) {
             env.send(sender, "benchmark.start-failed", env.rootMessage(throwable));
             ticket.close();
@@ -216,6 +229,7 @@ public final class BenchmarkCommandHandler {
 
     private void queueBenchmark(
             CommandSender sender,
+            RepositoryRuntime runtime,
             RepositoryState state,
             long width,
             long depth,
@@ -237,7 +251,7 @@ public final class BenchmarkCommandHandler {
                                                         if (autoRollback) {
                                                             env.send(sender, "benchmark.apply-fail-rollback", summary.failed());
                                                         } else {
-                                                            env.dirtyMap().restoreAll(summary.appliedDelta());
+                                                            runtime.dirtyMap().restoreAll(summary.appliedDelta());
                                                             env.send(sender, "benchmark.apply-fail-dirty", summary.failed());
                                                         }
                                                     }
@@ -269,6 +283,7 @@ public final class BenchmarkCommandHandler {
                                                                         : Set.copyOf(summary.appliedDelta().keySet());
                                                         queueRollback(
                                                                 sender,
+                                                                runtime,
                                                                 state,
                                                                 width,
                                                                 depth,
@@ -284,7 +299,14 @@ public final class BenchmarkCommandHandler {
                                                         return;
                                                     }
                                                     commitBenchmarkWithoutRollback(
-                                                            sender, state, width, depth, height, changes, ticket);
+                                                            sender,
+                                                            runtime,
+                                                            state,
+                                                            width,
+                                                            depth,
+                                                            height,
+                                                            changes,
+                                                            ticket);
                                                 }));
         if (jobId == null) {
             ticket.close();
@@ -295,6 +317,7 @@ public final class BenchmarkCommandHandler {
 
     private void commitBenchmarkWithoutRollback(
             CommandSender sender,
+            RepositoryRuntime runtime,
             RepositoryState state,
             long width,
             long depth,
@@ -311,7 +334,7 @@ public final class BenchmarkCommandHandler {
                         + "x"
                         + height;
         env.send(sender, "benchmark.persisting-commit");
-        env.commitWorker().submitCommit(
+        runtime.commitWorker().submitCommit(
                         message,
                         env.resolveAuthor(sender),
                         branchName,
@@ -330,21 +353,26 @@ public final class BenchmarkCommandHandler {
                                                                 () -> {
                                                                     if (throwable != null) {
                                                                         queueBenchmarkCommitFailureRecovery(
-                                                                                sender, changes, throwable, ticket);
+                                                                                sender,
+                                                                                runtime,
+                                                                                changes,
+                                                                                throwable,
+                                                                                ticket);
                                                                         return;
                                                                     }
                                                                     RepositoryState latest =
-                                                                            env.repositoryStateService().getState();
+                                                                            runtime.repositoryStateService().getState();
                                                                     RepositoryState updated =
                                                                             env.advanceBranchAfterAsyncCommit(
                                                                                     latest,
                                                                                     branchName,
                                                                                     expectedParentCommitId,
                                                                                     result.commitId());
-                                                                    env.repositoryStateService().update(updated);
-                                                                    env.checkpointService().maybeCreateCheckpoint(result);
+                                                                    runtime.repositoryStateService().update(updated);
+                                                                    runtime.checkpointService().maybeCreateCheckpoint(
+                                                                            result);
                                                                     if (updated == latest) {
-                                                                        env.markChangesDirty(changes);
+                                                                        env.markChangesDirty(runtime, changes);
                                                                         env.send(
                                                                                 sender,
                                                                                 "benchmark.commit-saved-dirty",
@@ -363,6 +391,7 @@ public final class BenchmarkCommandHandler {
 
     private void queueBenchmarkCommitFailureRecovery(
             CommandSender sender,
+            RepositoryRuntime runtime,
             List<BlockChangeRecord> forwardChanges,
             Throwable throwable,
             GitBlockCommandEnv.MutationTicket ticket) {
@@ -380,7 +409,10 @@ public final class BenchmarkCommandHandler {
                                                 ticket,
                                                 () -> {
                                                     if (summary.failed() > 0) {
-                                                        env.markRestorationFailuresDirty(recoveryChanges, summary.appliedDelta());
+                                                        env.markRestorationFailuresDirty(
+                                                                runtime,
+                                                                recoveryChanges,
+                                                                summary.appliedDelta());
                                                         env.send(
                                                                 sender,
                                                                 "benchmark.recovery-failed-partial",
@@ -392,6 +424,8 @@ public final class BenchmarkCommandHandler {
                                                     ticket.close();
                                                 }));
         if (recoveryJobId == null) {
+            env.markRestorationFailuresDirty(runtime, recoveryChanges, Map.of());
+            env.send(sender, "benchmark.recovery-failed-partial", recoveryChanges.size());
             ticket.close();
             return;
         }
@@ -400,6 +434,7 @@ public final class BenchmarkCommandHandler {
 
     private void queueRollback(
             CommandSender sender,
+            RepositoryRuntime runtime,
             RepositoryState state,
             long width,
             long depth,
@@ -420,6 +455,7 @@ public final class BenchmarkCommandHandler {
                                                 () -> {
                                                     if (summary.failed() > 0) {
                                                         env.markRestorationFailuresDirty(
+                                                                runtime,
                                                                 rollbackChanges,
                                                                 summary.appliedDelta(),
                                                                 expectedRestoredKeys);
@@ -449,6 +485,10 @@ public final class BenchmarkCommandHandler {
                                                     ticket.close();
                                                 }));
         if (rollbackJobId == null) {
+            env.markRestorationFailuresDirty(runtime, rollbackChanges, Map.of(), expectedRestoredKeys);
+            int failedRestoreCount =
+                    expectedRestoredKeys == null ? rollbackChanges.size() : expectedRestoredKeys.size();
+            env.send(sender, "benchmark.rollback-failed-dirty", failedRestoreCount);
             ticket.close();
             return;
         }

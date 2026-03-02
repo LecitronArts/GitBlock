@@ -1,5 +1,18 @@
 repo-name: default
 
+repositories:
+  # default max repositories each player can own
+  default-max-per-player: 1
+  # permission overrides, highest matching value wins
+  max-by-permission:
+    gitblock.repo.limit.2: 2
+    gitblock.repo.limit.5: 5
+
+commit-message:
+  # used when /gitblock commit has no message and for GUI quick commit
+  # supported tokens: {player} {repo} {branch} {time} {dirty}
+  default-template: "manual commit by {player} in {repo} at {time}"
+
 permissions:
   # base command gate for /gitblock
   use: gitblock.use

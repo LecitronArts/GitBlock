@@ -5,6 +5,7 @@ import io.froststream.gitblock.model.CommitSummary;
 import io.froststream.gitblock.model.DiffSummary;
 import io.froststream.gitblock.model.DirtyEntry;
 import io.froststream.gitblock.model.LocationKey;
+import io.froststream.gitblock.repo.RepositoryRuntime;
 import io.froststream.gitblock.repo.RepositoryState;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -44,7 +45,8 @@ public final class HistoryCommandHandler {
         if (ticket == null) {
             return;
         }
-        RepositoryState state = env.requireInitialized(sender);
+        RepositoryRuntime runtime = env.runtime(sender);
+        RepositoryState state = env.requireInitialized(sender, runtime);
         if (state == null) {
             ticket.close();
             return;
@@ -55,7 +57,7 @@ public final class HistoryCommandHandler {
             return;
         }
 
-        Map<LocationKey, DirtyEntry> drained = env.dirtyMap().drainAll();
+        Map<LocationKey, DirtyEntry> drained = runtime.dirtyMap().drainAll();
         if (drained.isEmpty()) {
             env.send(sender, "history.commit-no-dirty");
             ticket.close();
@@ -63,7 +65,9 @@ public final class HistoryCommandHandler {
         }
 
         String message =
-                args.length > 1 ? String.join(" ", Arrays.copyOfRange(args, 1, args.length)) : "manual commit";
+                args.length > 1
+                        ? String.join(" ", Arrays.copyOfRange(args, 1, args.length))
+                        : env.resolveCommitMessage(sender, runtime, drained.size());
         UUID author = env.resolveAuthor(sender);
         String commitBranch = state.currentBranch();
         String expectedParentCommitId = state.activeCommitId();
@@ -71,7 +75,7 @@ public final class HistoryCommandHandler {
         env.send(sender, "history.commit-start", changes.size());
 
         try {
-            env.commitWorker().submitCommit(
+            runtime.commitWorker().submitCommit(
                             message,
                             author,
                             commitBranch,
@@ -89,49 +93,54 @@ public final class HistoryCommandHandler {
                                                                     ticket,
                                                                     () -> {
                                                                         if (throwable != null) {
-                                                                            env.dirtyMap().restoreAll(drained);
+                                                                            runtime.dirtyMap().restoreAll(drained);
                                                                             env.send(
                                                                                     sender,
                                                                                     "history.commit-failed-restored",
                                                                                     env.rootMessage(throwable));
-                                                                        ticket.close();
-                                                                        return;
-                                                                    }
-                                                                    RepositoryState current =
-                                                                            env.repositoryStateService().getState();
-                                                                    RepositoryState updated =
-                                                                            env.advanceBranchAfterAsyncCommit(
-                                                                                    current,
-                                                                                    commitBranch,
-                                                                                    expectedParentCommitId,
+                                                                            ticket.close();
+                                                                            return;
+                                                                        }
+                                                                        RepositoryState current =
+                                                                                runtime.repositoryStateService().getState();
+                                                                        RepositoryState updated =
+                                                                                env.advanceBranchAfterAsyncCommit(
+                                                                                        current,
+                                                                                        commitBranch,
+                                                                                        expectedParentCommitId,
+                                                                                        result.commitId());
+                                                                        runtime.repositoryStateService().update(updated);
+                                                                        runtime.checkpointService().maybeCreateCheckpoint(
+                                                                                result);
+                                                                        if (updated == current) {
+                                                                            runtime.dirtyMap().restoreAll(drained);
+                                                                            env.send(
+                                                                                    sender,
+                                                                                    "history.commit-saved-dirty",
                                                                                     result.commitId());
-                                                                    env.repositoryStateService().update(updated);
-                                                                    env.checkpointService().maybeCreateCheckpoint(result);
-                                                                    if (updated == current) {
-                                                                        env.dirtyMap().restoreAll(drained);
+                                                                            ticket.close();
+                                                                            return;
+                                                                        }
                                                                         env.send(
                                                                                 sender,
-                                                                                "history.commit-saved-dirty",
-                                                                                result.commitId());
+                                                                                "history.commit-saved",
+                                                                                result.commitId(),
+                                                                                result.commitNumber(),
+                                                                                result.changeCount());
                                                                         ticket.close();
-                                                                        return;
-                                                                    }
-                                                                    env.send(
-                                                                            sender,
-                                                                            "history.commit-saved",
-                                                                            result.commitId(),
-                                                                            result.commitNumber(),
-                                                                            result.changeCount());
-                                                                    ticket.close();
                                                                     })));
         } catch (Throwable throwable) {
-            env.dirtyMap().restoreAll(drained);
+            runtime.dirtyMap().restoreAll(drained);
             env.send(sender, "history.commit-start-failed", env.rootMessage(throwable));
             ticket.close();
         }
     }
 
     public void handleLog(CommandSender sender, String[] args) {
+        RepositoryRuntime runtime = env.runtime(sender);
+        if (runtime == null) {
+            return;
+        }
         int limit = 10;
         if (args.length > 1) {
             try {
@@ -141,7 +150,7 @@ public final class HistoryCommandHandler {
             }
         }
 
-        List<CommitSummary> summaries = env.commitWorker().tail(limit);
+        List<CommitSummary> summaries = runtime.commitWorker().tail(limit);
         if (summaries.isEmpty()) {
             env.send(sender, "history.log-empty");
             return;
@@ -163,7 +172,8 @@ public final class HistoryCommandHandler {
     }
 
     public void handleCheckout(CommandSender sender, String[] args) {
-        RepositoryState state = env.requireInitialized(sender);
+        RepositoryRuntime runtime = env.runtime(sender);
+        RepositoryState state = env.requireInitialized(sender, runtime);
         if (state == null) {
             return;
         }
@@ -171,7 +181,7 @@ public final class HistoryCommandHandler {
             env.send(sender, "history.apply-queue-busy");
             return;
         }
-        if (env.dirtyMap().size() > 0) {
+        if (runtime.dirtyMap().size() > 0) {
             env.send(sender, "history.checkout-working-tree-dirty");
             return;
         }
@@ -180,13 +190,14 @@ public final class HistoryCommandHandler {
             return;
         }
 
-        String targetCommitId = env.resolveCommitToken(args[1], state);
+        String targetCommitId = env.resolveCommitToken(args[1], state, runtime);
         if (targetCommitId == null && !"null".equalsIgnoreCase(args[1])) {
             env.send(sender, "history.unknown-commit-or-branch", args[1]);
             return;
         }
         transitions.runTransition(
                 sender,
+                runtime,
                 state.activeCommitId(),
                 targetCommitId,
                 false,
@@ -195,7 +206,8 @@ public final class HistoryCommandHandler {
     }
 
     public void handleDiff(CommandSender sender, String[] args) {
-        RepositoryState state = env.requireInitialized(sender);
+        RepositoryRuntime runtime = env.runtime(sender);
+        RepositoryState state = env.requireInitialized(sender, runtime);
         if (state == null) {
             return;
         }
@@ -204,8 +216,8 @@ public final class HistoryCommandHandler {
             return;
         }
 
-        String fromCommit = env.resolveCommitToken(args[1], state);
-        String toCommit = env.resolveCommitToken(args[2], state);
+        String fromCommit = env.resolveCommitToken(args[1], state, runtime);
+        String toCommit = env.resolveCommitToken(args[2], state, runtime);
         if (fromCommit == null && !"null".equalsIgnoreCase(args[1])) {
             env.send(sender, "history.unknown-from-token", args[1]);
             return;
@@ -218,7 +230,7 @@ public final class HistoryCommandHandler {
             return;
         }
 
-        env.transitionService().diff(fromCommit, toCommit, 10)
+        runtime.transitionService().diff(fromCommit, toCommit, 10)
                 .whenComplete(
                         (diff, throwable) ->
                                 Bukkit.getScheduler()
@@ -238,7 +250,8 @@ public final class HistoryCommandHandler {
         if (ticket == null) {
             return;
         }
-        RepositoryState state = env.requireInitialized(sender);
+        RepositoryRuntime runtime = env.runtime(sender);
+        RepositoryState state = env.requireInitialized(sender, runtime);
         if (state == null) {
             ticket.close();
             return;
@@ -248,7 +261,7 @@ public final class HistoryCommandHandler {
             ticket.close();
             return;
         }
-        if (env.dirtyMap().size() > 0) {
+        if (runtime.dirtyMap().size() > 0) {
             env.send(sender, "history.revert-working-tree-dirty");
             ticket.close();
             return;
@@ -259,14 +272,14 @@ public final class HistoryCommandHandler {
             return;
         }
         String commitId = args[1];
-        if (!env.commitWorker().hasCommit(commitId)) {
+        if (!runtime.commitWorker().hasCommit(commitId)) {
             env.send(sender, "history.unknown-commit", commitId);
             ticket.close();
             return;
         }
 
         try {
-            env.commitWorker().readCommitChanges(commitId)
+            runtime.commitWorker().readCommitChanges(commitId)
                     .whenComplete(
                             (changes, throwable) ->
                                     Bukkit.getScheduler()
@@ -285,7 +298,7 @@ public final class HistoryCommandHandler {
                                                                             ticket.close();
                                                                             return;
                                                                         }
-                                                                        queueRevert(sender, state, commitId, changes, ticket);
+                                                                        queueRevert(sender, runtime, state, commitId, changes, ticket);
                                                                     })));
         } catch (Throwable throwable) {
             env.send(sender, "history.revert-start-failed", env.rootMessage(throwable));
@@ -295,6 +308,7 @@ public final class HistoryCommandHandler {
 
     private void queueRevert(
             CommandSender sender,
+            RepositoryRuntime runtime,
             RepositoryState state,
             String commitId,
             List<BlockChangeRecord> changes,
@@ -318,12 +332,12 @@ public final class HistoryCommandHandler {
                                                 ticket,
                                                 () -> {
                                                     if (summary.failed() > 0) {
-                                                        env.dirtyMap().restoreAll(summary.appliedDelta());
+                                                        runtime.dirtyMap().restoreAll(summary.appliedDelta());
                                                         env.send(sender, "history.revert-failed-during-apply");
                                                         ticket.close();
                                                         return;
                                                     }
-                                                    env.commitWorker().submitCommit(
+                                                    runtime.commitWorker().submitCommit(
                                                                     "revert " + commitId,
                                                                     env.resolveAuthor(sender),
                                                                     revertBranch,
@@ -343,6 +357,7 @@ public final class HistoryCommandHandler {
                                                                                                                 if (commitThrowable != null) {
                                                                                                                     queueRevertCommitFailureRecovery(
                                                                                                                             sender,
+                                                                                                                            runtime,
                                                                                                                             commitId,
                                                                                                                             changes,
                                                                                                                             commitThrowable,
@@ -350,21 +365,22 @@ public final class HistoryCommandHandler {
                                                                                                                     return;
                                                                                                                 }
                                                                                                                 RepositoryState latest =
-                                                                                                                        env.repositoryStateService()
+                                                                                                                        runtime.repositoryStateService()
                                                                                                                                 .getState();
                                                                                                                 RepositoryState updated =
                                                                                                                         env.advanceBranchAfterAsyncCommit(
                                                                                                                                 latest,
                                                                                                                                 revertBranch,
-                                                                                                                                expectedParentCommitId,
-                                                                                                                                result.commitId());
-                                                                                                                env.repositoryStateService()
+                                                                                                                               expectedParentCommitId,
+                                                                                                                               result.commitId());
+                                                                                                                runtime.repositoryStateService()
                                                                                                                         .update(updated);
-                                                                                                                env.checkpointService()
+                                                                                                                runtime.checkpointService()
                                                                                                                         .maybeCreateCheckpoint(
                                                                                                                                 result);
                                                                                                                 if (updated == latest) {
                                                                                                                     env.markChangesDirty(
+                                                                                                                            runtime,
                                                                                                                             reverse);
                                                                                                                     env.send(
                                                                                                                             sender,
@@ -389,6 +405,7 @@ public final class HistoryCommandHandler {
 
     private void queueRevertCommitFailureRecovery(
             CommandSender sender,
+            RepositoryRuntime runtime,
             String commitId,
             List<BlockChangeRecord> recoveryChanges,
             Throwable commitThrowable,
@@ -406,7 +423,10 @@ public final class HistoryCommandHandler {
                                                 ticket,
                                                 () -> {
                                                     if (summary.failed() > 0) {
-                                                        env.markRestorationFailuresDirty(recoveryChanges, summary.appliedDelta());
+                                                        env.markRestorationFailuresDirty(
+                                                                runtime,
+                                                                recoveryChanges,
+                                                                summary.appliedDelta());
                                                         env.send(
                                                                 sender,
                                                                 "history.revert-recovery-failed",
@@ -418,6 +438,8 @@ public final class HistoryCommandHandler {
                                                     ticket.close();
                                                 }));
         if (recoveryJobId == null) {
+            env.markRestorationFailuresDirty(runtime, recoveryChanges, Map.of());
+            env.send(sender, "history.revert-recovery-failed", recoveryChanges.size());
             ticket.close();
             return;
         }

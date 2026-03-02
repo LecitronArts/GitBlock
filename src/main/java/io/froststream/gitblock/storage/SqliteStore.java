@@ -50,12 +50,16 @@ public final class SqliteStore implements AutoCloseable {
     }
 
     public synchronized RepositoryState loadRepositoryState() {
+        return loadRepositoryState("default");
+    }
+
+    public synchronized RepositoryState loadRepositoryState(String fallbackRepoName) {
         Map<String, String> meta = loadMetaMap();
         if (!Boolean.parseBoolean(meta.getOrDefault("initialized", "false"))) {
             return RepositoryState.uninitialized();
         }
 
-        String repoName = meta.getOrDefault("repo-name", "default");
+        String repoName = meta.getOrDefault("repo-name", fallbackRepoName == null ? "default" : fallbackRepoName);
         RepoRegion region =
                 new RepoRegion(
                         meta.getOrDefault("region.world", ""),
