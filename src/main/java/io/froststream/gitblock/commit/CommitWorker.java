@@ -6,10 +6,14 @@ import io.froststream.gitblock.model.CommitResult;
 import io.froststream.gitblock.model.CommitSummary;
 import io.froststream.gitblock.storage.SqliteStore;
 import java.io.BufferedReader;
+import java.io.BufferedInputStream;
 import java.io.BufferedWriter;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.io.PushbackInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,7 +39,8 @@ import java.util.zip.GZIPOutputStream;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class CommitWorker {
-    private static final String OBJECT_HEADER = "PGD1";
+    private static final String OBJECT_HEADER_V1 = "PGD1";
+    private static final String OBJECT_HEADER_V2 = "PGD2";
     private static final String LOG_PREFIX = "v2";
     private static final Base64.Encoder BASE64_ENCODER = Base64.getUrlEncoder().withoutPadding();
     private static final Base64.Decoder BASE64_DECODER = Base64.getUrlDecoder();
@@ -451,40 +456,68 @@ public final class CommitWorker {
     }
 
     private void writeObjectFile(Path objectFile, List<BlockChangeRecord> changes) throws IOException {
-        try (BufferedWriter writer =
-                new BufferedWriter(
-                        new OutputStreamWriter(
-                                new GZIPOutputStream(Files.newOutputStream(objectFile)),
-                                StandardCharsets.UTF_8))) {
-            writer.write(OBJECT_HEADER);
-            writer.newLine();
-            for (BlockChangeRecord change : changes) {
-                writer.write(change.world());
-                writer.write('\t');
-                writer.write(Integer.toString(change.x()));
-                writer.write('\t');
-                writer.write(Integer.toString(change.y()));
-                writer.write('\t');
-                writer.write(Integer.toString(change.z()));
-                writer.write('\t');
-                writer.write(encode(change.oldState()));
-                writer.write('\t');
-                writer.write(encode(change.newState()));
-                writer.newLine();
+        List<String> stringPalette = new ArrayList<>();
+        Map<String, Integer> stringIndexes = new HashMap<>();
+        int changeCount = changes.size();
+        int[] worldIndexes = new int[changeCount];
+        int[] oldStateIndexes = new int[changeCount];
+        int[] newStateIndexes = new int[changeCount];
+        for (int i = 0; i < changeCount; i++) {
+            BlockChangeRecord change = changes.get(i);
+            worldIndexes[i] = paletteIndexOf(stringIndexes, stringPalette, change.world());
+            oldStateIndexes[i] = paletteIndexOf(stringIndexes, stringPalette, change.oldState());
+            newStateIndexes[i] = paletteIndexOf(stringIndexes, stringPalette, change.newState());
+        }
+
+        try (DataOutputStream output =
+                new DataOutputStream(new GZIPOutputStream(Files.newOutputStream(objectFile)))) {
+            output.write(OBJECT_HEADER_V2.getBytes(StandardCharsets.US_ASCII));
+            output.writeInt(stringPalette.size());
+            for (String value : stringPalette) {
+                writeUtf8(output, value);
+            }
+            output.writeInt(changeCount);
+            for (int i = 0; i < changeCount; i++) {
+                BlockChangeRecord change = changes.get(i);
+                output.writeInt(worldIndexes[i]);
+                output.writeInt(change.x());
+                output.writeInt(change.y());
+                output.writeInt(change.z());
+                output.writeInt(oldStateIndexes[i]);
+                output.writeInt(newStateIndexes[i]);
             }
         }
     }
 
     private List<BlockChangeRecord> readObjectFile(Path objectFile) throws IOException {
+        try (PushbackInputStream input =
+                new PushbackInputStream(
+                        new BufferedInputStream(
+                                new GZIPInputStream(Files.newInputStream(objectFile))),
+                        4)) {
+            byte[] headerBytes = input.readNBytes(4);
+            if (headerBytes.length != 4) {
+                throw new IllegalStateException("Corrupted commit object header: " + objectFile);
+            }
+            String header = new String(headerBytes, StandardCharsets.US_ASCII);
+            input.unread(headerBytes);
+            if (OBJECT_HEADER_V2.equals(header)) {
+                return readObjectFileV2(input);
+            }
+            if (OBJECT_HEADER_V1.equals(header)) {
+                return readObjectFileV1(input);
+            }
+            throw new IllegalStateException("Unsupported commit object header: " + header);
+        }
+    }
+
+    private List<BlockChangeRecord> readObjectFileV1(PushbackInputStream input) throws IOException {
         List<BlockChangeRecord> changes = new ArrayList<>();
         Map<String, String> stringPool = new HashMap<>();
         try (BufferedReader reader =
-                new BufferedReader(
-                        new InputStreamReader(
-                                new GZIPInputStream(Files.newInputStream(objectFile)),
-                                StandardCharsets.UTF_8))) {
+                new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
             String header = reader.readLine();
-            if (!OBJECT_HEADER.equals(header)) {
+            if (!OBJECT_HEADER_V1.equals(header)) {
                 throw new IllegalStateException("Unsupported commit object header: " + header);
             }
 
@@ -509,8 +542,84 @@ public final class CommitWorker {
                                 oldState,
                                 newState));
             }
+            return changes;
         }
-        return changes;
+    }
+
+    private List<BlockChangeRecord> readObjectFileV2(PushbackInputStream input) throws IOException {
+        Map<String, String> stringPool = new HashMap<>();
+        try (DataInputStream dataInput = new DataInputStream(input)) {
+            byte[] headerBytes = dataInput.readNBytes(4);
+            if (headerBytes.length != 4
+                    || !OBJECT_HEADER_V2.equals(new String(headerBytes, StandardCharsets.US_ASCII))) {
+                throw new IllegalStateException("Unsupported commit object header.");
+            }
+
+            int paletteSize = dataInput.readInt();
+            if (paletteSize < 0) {
+                throw new IllegalStateException("Corrupted commit palette size: " + paletteSize);
+            }
+            List<String> palette = new ArrayList<>(paletteSize);
+            for (int i = 0; i < paletteSize; i++) {
+                palette.add(canonicalize(stringPool, readUtf8(dataInput)));
+            }
+
+            int changeCount = dataInput.readInt();
+            if (changeCount < 0) {
+                throw new IllegalStateException("Corrupted commit change count: " + changeCount);
+            }
+            List<BlockChangeRecord> changes = new ArrayList<>(changeCount);
+            for (int i = 0; i < changeCount; i++) {
+                int worldIndex = dataInput.readInt();
+                int x = dataInput.readInt();
+                int y = dataInput.readInt();
+                int z = dataInput.readInt();
+                int oldStateIndex = dataInput.readInt();
+                int newStateIndex = dataInput.readInt();
+                String world = paletteValueAt(palette, worldIndex, "world");
+                String oldState = paletteValueAt(palette, oldStateIndex, "old-state");
+                String newState = paletteValueAt(palette, newStateIndex, "new-state");
+                changes.add(new BlockChangeRecord(world, x, y, z, oldState, newState));
+            }
+            return changes;
+        }
+    }
+
+    private static void writeUtf8(DataOutputStream output, String value) throws IOException {
+        byte[] encoded = value.getBytes(StandardCharsets.UTF_8);
+        output.writeInt(encoded.length);
+        output.write(encoded);
+    }
+
+    private static String readUtf8(DataInputStream input) throws IOException {
+        int size = input.readInt();
+        if (size < 0) {
+            throw new IllegalStateException("Corrupted utf8 field size: " + size);
+        }
+        byte[] encoded = input.readNBytes(size);
+        if (encoded.length != size) {
+            throw new IllegalStateException("Unexpected EOF while reading utf8 field.");
+        }
+        return new String(encoded, StandardCharsets.UTF_8);
+    }
+
+    private static int paletteIndexOf(
+            Map<String, Integer> indexes, List<String> palette, String value) {
+        Integer existing = indexes.get(value);
+        if (existing != null) {
+            return existing;
+        }
+        int index = palette.size();
+        palette.add(value);
+        indexes.put(value, index);
+        return index;
+    }
+
+    private static String paletteValueAt(List<String> palette, int index, String field) {
+        if (index < 0 || index >= palette.size()) {
+            throw new IllegalStateException("Corrupted commit " + field + " palette index: " + index);
+        }
+        return palette.get(index);
     }
 
     private String sanitizeMessage(String message) {

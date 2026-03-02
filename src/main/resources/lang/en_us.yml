@@ -1,7 +1,7 @@
 common:
   none: "<none>"
-  no-permission-use: "&cYou do not have permission: gitblock.use"
-  no-permission-admin: "&cYou do not have permission: gitblock.admin"
+  no-permission-use: "&cYou do not have permission: {0}"
+  no-permission-admin: "&cYou do not have permission: {0}"
   player-only: "&eOnly players can use this command."
   unknown-subcommand: "&eUnknown subcommand. Use /{0} help."
   another-operation: "&eAnother GitBlock operation is running: {0}"
@@ -34,7 +34,7 @@ menu:
   opened: "&aOpened GitBlock menu."
   title: "&0GitBlock Menu"
   click-run: "&7Run: &f/{0}"
-  admin-required: "&cThis button requires gitblock.admin."
+  admin-required: "&cThis button requires admin permission."
   checkout-tip: "&eUse /gitblock checkout <commit|branch>."
   diff-tip: "&eUse /gitblock diff <from> <to>."
   item:
@@ -104,6 +104,7 @@ repository:
 branch:
   usage-branch: "&eUsage: /gitblock branch <name>"
   invalid-name: "&eInvalid branch name."
+  reserved-name: "&eReserved branch name is not allowed: {0}"
   already-exists: "&eBranch already exists: {0}"
   created: "&aBranch created: {0} -> {1}"
   list-title: "&bBranches:"

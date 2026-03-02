@@ -32,8 +32,8 @@ public final class BenchmarkCommandHandler {
     }
 
     public void handleBench(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("gitblock.admin")) {
-            env.send(sender, "common.no-permission-admin");
+        if (!env.hasAdminPermission(sender)) {
+            env.send(sender, "common.no-permission-admin", env.adminPermissionNode());
             return;
         }
         RepositoryState state = env.requireInitialized(sender);

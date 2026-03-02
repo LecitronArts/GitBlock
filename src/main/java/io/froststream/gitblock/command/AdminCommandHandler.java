@@ -16,8 +16,8 @@ public final class AdminCommandHandler {
     }
 
     public void handleCheckpoint(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("gitblock.admin")) {
-            env.send(sender, "common.no-permission-admin");
+        if (!env.hasAdminPermission(sender)) {
+            env.send(sender, "common.no-permission-admin", env.adminPermissionNode());
             return;
         }
         RepositoryState state = env.requireInitialized(sender);
@@ -37,6 +37,10 @@ public final class AdminCommandHandler {
     }
 
     public void handleJobs(CommandSender sender) {
+        if (!env.hasJobsPermission(sender)) {
+            env.send(sender, "common.no-permission-admin", env.jobsPermissionNode());
+            return;
+        }
         ApplyJobStatus status = env.applyScheduler().currentJobStatus();
         if (status == null) {
             env.send(sender, "admin.jobs.no-active-apply");
@@ -70,8 +74,8 @@ public final class AdminCommandHandler {
     }
 
     public void handleCancel(CommandSender sender, String[] args) {
-        if (!sender.hasPermission("gitblock.admin")) {
-            env.send(sender, "common.no-permission-admin");
+        if (!env.hasAdminPermission(sender)) {
+            env.send(sender, "common.no-permission-admin", env.adminPermissionNode());
             return;
         }
         String target = args.length > 1 ? args[1] : "all";

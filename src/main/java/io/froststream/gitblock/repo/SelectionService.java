@@ -24,6 +24,21 @@ public final class SelectionService {
                 pos2ByPlayer.get(player.getUniqueId()));
     }
 
+    public void clear(Player player) {
+        if (player == null) {
+            return;
+        }
+        clear(player.getUniqueId());
+    }
+
+    public void clear(UUID playerId) {
+        if (playerId == null) {
+            return;
+        }
+        pos1ByPlayer.remove(playerId);
+        pos2ByPlayer.remove(playerId);
+    }
+
     public record SelectedRegion(Location pos1, Location pos2) {
         public boolean complete() {
             return pos1 != null && pos2 != null;

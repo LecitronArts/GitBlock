@@ -46,6 +46,9 @@ public final class GitBlockCommandEnv {
     private final Path conflictsDir;
     private final String storageRepoName;
     private final boolean serializeMutations;
+    private final String usePermission;
+    private final String adminPermission;
+    private final String jobsPermission;
     private final AtomicReference<String> activeMutation = new AtomicReference<>();
 
     public GitBlockCommandEnv(
@@ -60,7 +63,10 @@ public final class GitBlockCommandEnv {
             I18nService i18n,
             Path conflictsDir,
             String storageRepoName,
-            boolean serializeMutations) {
+            boolean serializeMutations,
+            String usePermission,
+            String adminPermission,
+            String jobsPermission) {
         this.plugin = plugin;
         this.dirtyMap = dirtyMap;
         this.commitWorker = commitWorker;
@@ -73,6 +79,9 @@ public final class GitBlockCommandEnv {
         this.conflictsDir = conflictsDir;
         this.storageRepoName = storageRepoName;
         this.serializeMutations = serializeMutations;
+        this.usePermission = usePermission;
+        this.adminPermission = adminPermission;
+        this.jobsPermission = jobsPermission;
     }
 
     public JavaPlugin plugin() {
@@ -121,6 +130,30 @@ public final class GitBlockCommandEnv {
 
     public boolean serializeMutationsEnabled() {
         return serializeMutations;
+    }
+
+    public String usePermissionNode() {
+        return usePermission;
+    }
+
+    public String adminPermissionNode() {
+        return adminPermission;
+    }
+
+    public String jobsPermissionNode() {
+        return jobsPermission;
+    }
+
+    public boolean hasUsePermission(CommandSender sender) {
+        return sender.hasPermission(usePermission);
+    }
+
+    public boolean hasAdminPermission(CommandSender sender) {
+        return sender.hasPermission(adminPermission);
+    }
+
+    public boolean hasJobsPermission(CommandSender sender) {
+        return sender.hasPermission(jobsPermission);
     }
 
     public String activeMutationDescription() {
@@ -260,6 +293,13 @@ public final class GitBlockCommandEnv {
 
     public String sanitizeBranchName(String raw) {
         return raw.replaceAll("[^a-zA-Z0-9_\\-/]", "");
+    }
+
+    public boolean isReservedReferenceToken(String token) {
+        if (token == null) {
+            return false;
+        }
+        return "head".equalsIgnoreCase(token) || "null".equalsIgnoreCase(token);
     }
 
     public String formatLocation(Location location) {

@@ -10,6 +10,7 @@ import java.util.BitSet;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -21,17 +22,22 @@ import java.util.stream.Collectors;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
 public final class ApplyScheduler {
+    private static final int MIN_BLOCKS_PER_TICK = 100;
     private final JavaPlugin plugin;
     private final TrackingGate trackingGate;
     private final int baseMaxBlocksPerTick;
     private final long baseTickBudgetNanos;
     private final int maxQueuedJobs;
     private final ApplyQueueOverflowPolicy queueOverflowPolicy;
+    private final int maxChunkUnloadsPerTick;
+    private final Map<String, BlockData> blockDataCache;
     private final Queue<ApplyJob> jobs = new ConcurrentLinkedQueue<>();
+    private final Queue<ChunkUnloadRequest> pendingChunkUnloads = new ConcurrentLinkedQueue<>();
     private final BukkitTask workerTask;
     private boolean countHeadAsPending;
 
@@ -41,14 +47,18 @@ public final class ApplyScheduler {
             int maxBlocksPerTick,
             long tickBudgetNanos,
             int maxQueuedJobs,
-            ApplyQueueOverflowPolicy queueOverflowPolicy) {
+            ApplyQueueOverflowPolicy queueOverflowPolicy,
+            int blockDataCacheSize,
+            int maxChunkUnloadsPerTick) {
         this.plugin = plugin;
         this.trackingGate = trackingGate;
-        this.baseMaxBlocksPerTick = Math.max(100, maxBlocksPerTick);
+        this.baseMaxBlocksPerTick = Math.max(MIN_BLOCKS_PER_TICK, maxBlocksPerTick);
         this.baseTickBudgetNanos = Math.max(1L, tickBudgetNanos);
         this.maxQueuedJobs = Math.max(1, maxQueuedJobs);
         this.queueOverflowPolicy =
                 queueOverflowPolicy == null ? ApplyQueueOverflowPolicy.REJECT_NEW : queueOverflowPolicy;
+        this.blockDataCache = newBlockDataCache(Math.max(0, blockDataCacheSize));
+        this.maxChunkUnloadsPerTick = Math.max(1, maxChunkUnloadsPerTick);
         this.workerTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tick, 1L, 1L);
     }
 
@@ -163,9 +173,11 @@ public final class ApplyScheduler {
     public void shutdown() {
         workerTask.cancel();
         cancelAll();
+        drainPendingChunkUnloads(Integer.MAX_VALUE);
     }
 
     private void tick() {
+        drainPendingChunkUnloads(maxChunkUnloadsPerTick);
         ApplyJob currentJob = jobs.peek();
         if (currentJob == null) {
             return;
@@ -242,7 +254,7 @@ public final class ApplyScheduler {
         } else {
             multiplier = 0.25;
         }
-        int maxBlocks = Math.max(100, (int) Math.floor(baseMaxBlocksPerTick * multiplier));
+        int maxBlocks = Math.max(MIN_BLOCKS_PER_TICK, (int) Math.floor(baseMaxBlocksPerTick * multiplier));
         long budgetNanos = Math.max(500_000L, (long) Math.floor(baseTickBudgetNanos * multiplier));
         return new Budget(maxBlocks, budgetNanos);
     }
@@ -294,7 +306,7 @@ public final class ApplyScheduler {
             return ApplyOutcome.FAILED;
         }
         try {
-            block.setBlockData(Bukkit.createBlockData(change.newState()), false);
+            block.setBlockData(resolveBlockData(change.newState()), false);
             return ApplyOutcome.APPLIED;
         } catch (IllegalArgumentException invalidState) {
             plugin.getLogger()
@@ -318,6 +330,15 @@ public final class ApplyScheduler {
         Set<Long> knownWorldChunks =
                 job.loadedChunksByWorld.computeIfAbsent(world.getName(), ignored -> new HashSet<>());
         if (knownWorldChunks.contains(chunkKey)) {
+            if (world.isChunkLoaded(chunkX, chunkZ)) {
+                return true;
+            }
+            if (!world.loadChunk(chunkX, chunkZ, false)) {
+                return false;
+            }
+            job.loadedChunksByJob
+                    .computeIfAbsent(world.getName(), ignored -> new HashSet<>())
+                    .add(chunkKey);
             return true;
         }
 
@@ -386,20 +407,56 @@ public final class ApplyScheduler {
         }
     }
 
+    private BlockData resolveBlockData(String encodedBlockData) {
+        if (blockDataCache.isEmpty()) {
+            return Bukkit.createBlockData(encodedBlockData);
+        }
+        BlockData cached = blockDataCache.get(encodedBlockData);
+        if (cached != null) {
+            return cached.clone();
+        }
+        BlockData parsed = Bukkit.createBlockData(encodedBlockData);
+        blockDataCache.put(encodedBlockData, parsed);
+        return parsed.clone();
+    }
+
     private void releaseLoadedChunks(ApplyJob job) {
         for (Map.Entry<String, Set<Long>> entry : job.loadedChunksByJob.entrySet()) {
-            World world = Bukkit.getWorld(entry.getKey());
-            if (world == null) {
-                continue;
-            }
             for (long chunkKey : entry.getValue()) {
                 int chunkX = (int) (chunkKey >> 32);
                 int chunkZ = (int) chunkKey;
-                if (world.isChunkLoaded(chunkX, chunkZ)) {
-                    world.unloadChunkRequest(chunkX, chunkZ);
-                }
+                pendingChunkUnloads.add(new ChunkUnloadRequest(entry.getKey(), chunkX, chunkZ));
             }
         }
+    }
+
+    private void drainPendingChunkUnloads(int maxDrain) {
+        int safeMaxDrain = Math.max(1, maxDrain);
+        for (int drained = 0; drained < safeMaxDrain; drained++) {
+            ChunkUnloadRequest request = pendingChunkUnloads.poll();
+            if (request == null) {
+                return;
+            }
+            World world = Bukkit.getWorld(request.worldName());
+            if (world == null) {
+                continue;
+            }
+            if (world.isChunkLoaded(request.chunkX(), request.chunkZ())) {
+                world.unloadChunkRequest(request.chunkX(), request.chunkZ());
+            }
+        }
+    }
+
+    private static Map<String, BlockData> newBlockDataCache(int maxEntries) {
+        if (maxEntries <= 0) {
+            return Map.of();
+        }
+        return new LinkedHashMap<>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, BlockData> eldest) {
+                return size() > maxEntries;
+            }
+        };
     }
 
     private int pendingJobs() {
@@ -435,6 +492,8 @@ public final class ApplyScheduler {
     }
 
     private record Budget(int maxBlocks, long budgetNanos) {}
+
+    private record ChunkUnloadRequest(String worldName, int chunkX, int chunkZ) {}
 
     private enum ApplyOutcome {
         APPLIED,

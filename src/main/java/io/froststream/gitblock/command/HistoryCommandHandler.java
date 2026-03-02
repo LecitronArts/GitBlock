@@ -18,16 +18,25 @@ import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
 
 public final class HistoryCommandHandler {
+    private static final int DIFF_COOLDOWN_SWEEP_INTERVAL = 128;
     private static final DateTimeFormatter TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
     private final GitBlockCommandEnv env;
     private final TransitionCoordinator transitions;
     private final Map<String, Long> diffCooldownUntilBySender = new ConcurrentHashMap<>();
+    private int diffCooldownChecksSinceSweep;
 
     public HistoryCommandHandler(GitBlockCommandEnv env, TransitionCoordinator transitions) {
         this.env = env;
         this.transitions = transitions;
+    }
+
+    public void clearDiffCooldown(String senderName) {
+        if (senderName == null || senderName.isBlank()) {
+            return;
+        }
+        diffCooldownUntilBySender.remove(senderName.toLowerCase(Locale.ROOT));
     }
 
     public void handleCommit(CommandSender sender, String[] args) {
@@ -453,11 +462,25 @@ public final class HistoryCommandHandler {
         long now = System.currentTimeMillis();
         String senderKey = sender.getName().toLowerCase(Locale.ROOT);
         Long availableAt = diffCooldownUntilBySender.get(senderKey);
-        if (availableAt != null && now < availableAt) {
-            env.send(sender, "history.diff-cooldown", (availableAt - now));
-            return false;
+        if (availableAt != null) {
+            if (now < availableAt) {
+                env.send(sender, "history.diff-cooldown", (availableAt - now));
+                return false;
+            }
+            diffCooldownUntilBySender.remove(senderKey, availableAt);
         }
         diffCooldownUntilBySender.put(senderKey, now + cooldownMillis);
+        maybeSweepExpiredDiffCooldowns(now);
         return true;
+    }
+
+    private void maybeSweepExpiredDiffCooldowns(long nowMillis) {
+        diffCooldownChecksSinceSweep++;
+        if (diffCooldownUntilBySender.size() < 64
+                && diffCooldownChecksSinceSweep < DIFF_COOLDOWN_SWEEP_INTERVAL) {
+            return;
+        }
+        diffCooldownChecksSinceSweep = 0;
+        diffCooldownUntilBySender.entrySet().removeIf(entry -> entry.getValue() <= nowMillis);
     }
 }

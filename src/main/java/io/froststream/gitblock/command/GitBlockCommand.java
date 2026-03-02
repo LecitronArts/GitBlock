@@ -40,8 +40,8 @@ public final class GitBlockCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!sender.hasPermission("gitblock.use")) {
-            env.send(sender, "common.no-permission-use");
+        if (!env.hasUsePermission(sender)) {
+            env.send(sender, "common.no-permission-use", env.usePermissionNode());
             return true;
         }
 

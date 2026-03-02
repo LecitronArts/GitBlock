@@ -1,7 +1,7 @@
 common:
   none: "<无>"
-  no-permission-use: "&c你没有权限: gitblock.use"
-  no-permission-admin: "&c你没有权限: gitblock.admin"
+  no-permission-use: "&c你没有权限: {0}"
+  no-permission-admin: "&c你没有权限: {0}"
   player-only: "&e该命令只能由玩家执行。"
   unknown-subcommand: "&e未知子命令，请使用 /{0} help。"
   another-operation: "&e另一个 GitBlock 操作正在运行: {0}"
@@ -34,7 +34,7 @@ menu:
   opened: "&a已打开 GitBlock 菜单。"
   title: "&0GitBlock 菜单"
   click-run: "&7执行: &f/{0}"
-  admin-required: "&c该按钮需要权限 gitblock.admin。"
+  admin-required: "&c该按钮需要管理员权限。"
   checkout-tip: "&e请使用 /gitblock checkout <commit|branch>。"
   diff-tip: "&e请使用 /gitblock diff <from> <to>。"
   item:
@@ -104,6 +104,7 @@ repository:
 branch:
   usage-branch: "&e用法: /gitblock branch <name>"
   invalid-name: "&e无效分支名。"
+  reserved-name: "&e不允许使用保留分支名: {0}"
   already-exists: "&e分支已存在: {0}"
   created: "&a分支已创建: {0} -> {1}"
   list-title: "&b分支列表:"

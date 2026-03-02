@@ -204,7 +204,7 @@ public final class GitBlockChestMenu implements Listener {
         CHECKPOINT(GitBlockMenuModel.SLOT_CHECKPOINT) {
             @Override
             void execute(GitBlockChestMenu menu, Player player) {
-                if (!player.hasPermission("gitblock.admin")) {
+                if (!menu.env.hasAdminPermission(player)) {
                     menu.env.send(player, "menu.admin-required");
                     return;
                 }

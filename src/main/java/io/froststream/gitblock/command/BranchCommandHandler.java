@@ -46,6 +46,11 @@ public final class BranchCommandHandler {
             ticket.close();
             return;
         }
+        if (env.isReservedReferenceToken(name)) {
+            env.send(sender, "branch.reserved-name", name);
+            ticket.close();
+            return;
+        }
         if (state.hasBranch(name)) {
             env.send(sender, "branch.already-exists", name);
             ticket.close();

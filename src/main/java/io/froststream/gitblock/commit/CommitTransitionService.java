@@ -17,11 +17,18 @@ import java.util.function.Supplier;
 public final class CommitTransitionService {
     private final CommitWorker commitWorker;
     private final boolean includeMergeParentsInMergeBase;
+    private final Map<TransitionKey, List<BlockChangeRecord>> transitionCache;
+    private final Map<PatchKey, Map<LocationKey, BlockChangeRecord>> patchCache;
 
     public CommitTransitionService(
-            CommitWorker commitWorker, boolean includeMergeParentsInMergeBase) {
+            CommitWorker commitWorker,
+            boolean includeMergeParentsInMergeBase,
+            int transitionCacheEntries,
+            int patchCacheEntries) {
         this.commitWorker = commitWorker;
         this.includeMergeParentsInMergeBase = includeMergeParentsInMergeBase;
+        this.transitionCache = newLruCache(Math.max(0, transitionCacheEntries));
+        this.patchCache = newLruCache(Math.max(0, patchCacheEntries));
     }
 
     public CompletableFuture<List<BlockChangeRecord>> buildTransition(String fromCommitId, String toCommitId) {
@@ -63,6 +70,12 @@ public final class CommitTransitionService {
     }
 
     private List<BlockChangeRecord> buildTransitionInternal(String fromCommitId, String toCommitId) {
+        TransitionKey key = new TransitionKey(fromCommitId, toCommitId);
+        List<BlockChangeRecord> cached = cacheGet(transitionCache, key);
+        if (cached != null) {
+            return cached;
+        }
+
         if (fromCommitId == null && toCommitId == null) {
             return List.of();
         }
@@ -96,11 +109,19 @@ public final class CommitTransitionService {
             reducer.acceptAll(commitWorker.readCommitChangesBlocking(commit.commitId()));
         }
 
-        return reducer.toReducedList();
+        List<BlockChangeRecord> reduced = List.copyOf(reducer.toReducedList());
+        cachePut(transitionCache, key, reduced);
+        return reduced;
     }
 
     private Map<LocationKey, BlockChangeRecord> patchFromAncestorInternal(
             String ancestorExclusive, String targetInclusive) {
+        PatchKey key = new PatchKey(ancestorExclusive, targetInclusive);
+        Map<LocationKey, BlockChangeRecord> cached = cacheGet(patchCache, key);
+        if (cached != null) {
+            return cached;
+        }
+
         List<CommitMetadata> path = commitWorker.pathFromAncestor(ancestorExclusive, targetInclusive);
         ChangeSetReducer.Accumulator reducer = new ChangeSetReducer.Accumulator();
         for (CommitMetadata commit : path) {
@@ -111,7 +132,9 @@ public final class CommitTransitionService {
         for (BlockChangeRecord reduced : reducer.toReducedList()) {
             patch.put(new LocationKey(reduced.world(), reduced.x(), reduced.y(), reduced.z()), reduced);
         }
-        return patch;
+        Map<LocationKey, BlockChangeRecord> immutablePatch = Map.copyOf(patch);
+        cachePut(patchCache, key, immutablePatch);
+        return immutablePatch;
     }
 
     private MergePlan planMergeInternal(String oursCommitId, String theirsCommitId) {
@@ -176,4 +199,38 @@ public final class CommitTransitionService {
         }
         return commitWorker.findCommonAncestor(firstCommitId, secondCommitId, false);
     }
+
+    private static <K, V> Map<K, V> newLruCache(int maxEntries) {
+        if (maxEntries <= 0) {
+            return null;
+        }
+        return new LinkedHashMap<>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
+                return size() > maxEntries;
+            }
+        };
+    }
+
+    private static <K, V> V cacheGet(Map<K, V> cache, K key) {
+        if (cache == null) {
+            return null;
+        }
+        synchronized (cache) {
+            return cache.get(key);
+        }
+    }
+
+    private static <K, V> void cachePut(Map<K, V> cache, K key, V value) {
+        if (cache == null) {
+            return;
+        }
+        synchronized (cache) {
+            cache.put(key, value);
+        }
+    }
+
+    private record TransitionKey(String fromCommitId, String toCommitId) {}
+
+    private record PatchKey(String ancestorExclusive, String targetInclusive) {}
 }

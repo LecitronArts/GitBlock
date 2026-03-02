@@ -53,6 +53,7 @@ GitBlock 面向创意服务器，提供“像 Git 一样管理方块变更”的
 
 ### 关键配置（`config.yml`）
 - `repo-name`: 仓库名（会被清洗为安全字符）
+- `permissions.use` / `permissions.admin` / `permissions.jobs-view`
 - `i18n.default-locale` / `i18n.fallback-locale` / `i18n.force-locale`
 - `apply.max-blocks-per-tick` / `apply.tick-budget-ms` / `apply.max-queued-jobs`
 - `apply.queue-overflow-policy`: `reject-new` 或 `drop-oldest-pending`
@@ -123,6 +124,7 @@ Jar output is generated under `build/libs/`.
 
 ### Important Config Keys
 - `repo-name`
+- `permissions.use` / `permissions.admin` / `permissions.jobs-view`
 - `i18n.*`
 - `apply.*` and `apply.queue-overflow-policy`
 - `checkpoints.every-commits`

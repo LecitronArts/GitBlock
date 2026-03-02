@@ -20,10 +20,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-public final class SqliteStore {
+public final class SqliteStore implements AutoCloseable {
     private final String jdbcUrl;
+    private final boolean walEnabled;
+    private final boolean synchronousNormal;
+    private final int busyTimeoutMs;
+    private Connection sharedConnection;
+    private boolean closed;
 
     public SqliteStore(Path dbPath) {
+        this(dbPath, true, true, 5000);
+    }
+
+    public SqliteStore(
+            Path dbPath, boolean walEnabled, boolean synchronousNormal, int busyTimeoutMs) {
         try {
             Path parent = dbPath.getParent();
             if (parent != null) {
@@ -33,6 +43,9 @@ public final class SqliteStore {
             throw new IllegalStateException("Failed to create database directory", ioException);
         }
         this.jdbcUrl = "jdbc:sqlite:" + dbPath.toAbsolutePath();
+        this.walEnabled = walEnabled;
+        this.synchronousNormal = synchronousNormal;
+        this.busyTimeoutMs = Math.max(0, busyTimeoutMs);
         initSchema();
     }
 
@@ -224,6 +237,24 @@ public final class SqliteStore {
         return Boolean.parseBoolean(loadMetaMap().getOrDefault("initialized", "false"));
     }
 
+    @Override
+    public synchronized void close() {
+        if (closed) {
+            return;
+        }
+        closed = true;
+        if (sharedConnection == null) {
+            return;
+        }
+        try {
+            sharedConnection.close();
+        } catch (SQLException sqlException) {
+            throw new IllegalStateException("Failed to close SQLite connection", sqlException);
+        } finally {
+            sharedConnection = null;
+        }
+    }
+
     private void initSchema() {
         withConnection(
                 connection -> {
@@ -301,8 +332,9 @@ public final class SqliteStore {
         return value == null || value.isBlank() ? null : value;
     }
 
-    private <T> T withConnection(SqlFunction<Connection, T> function) {
-        try (Connection connection = DriverManager.getConnection(jdbcUrl)) {
+    private synchronized <T> T withConnection(SqlFunction<Connection, T> function) {
+        try {
+            Connection connection = ensureConnection();
             return function.apply(connection);
         } catch (SQLException sqlException) {
             throw new IllegalStateException("SQLite operation failed", sqlException);
@@ -311,6 +343,32 @@ public final class SqliteStore {
                 throw runtimeException;
             }
             throw new IllegalStateException("SQLite operation failed", exception);
+        }
+    }
+
+    private Connection ensureConnection() throws SQLException {
+        if (closed) {
+            throw new IllegalStateException("SQLite store is closed.");
+        }
+        if (sharedConnection != null && !sharedConnection.isClosed()) {
+            return sharedConnection;
+        }
+        sharedConnection = DriverManager.getConnection(jdbcUrl);
+        applyPragmas(sharedConnection);
+        return sharedConnection;
+    }
+
+    private void applyPragmas(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            if (walEnabled) {
+                statement.execute("PRAGMA journal_mode=WAL");
+            }
+            if (synchronousNormal) {
+                statement.execute("PRAGMA synchronous=NORMAL");
+            }
+            if (busyTimeoutMs > 0) {
+                statement.execute("PRAGMA busy_timeout=" + busyTimeoutMs);
+            }
         }
     }
 

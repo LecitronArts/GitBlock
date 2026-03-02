@@ -1,5 +1,14 @@
 repo-name: default
 
+permissions:
+  # base command gate for /gitblock
+  use: gitblock.use
+  # admin-level operations (bench/cancel/checkpoint)
+  admin: gitblock.admin
+  # permission required for /gitblock jobs
+  # set to gitblock.use if you want all users with base access to view jobs
+  jobs-view: gitblock.admin
+
 i18n:
   # default language for console and unknown locales
   default-locale: zh_cn
@@ -14,6 +23,10 @@ apply:
   max-blocks-per-tick: 1500
   tick-budget-ms: 2
   max-queued-jobs: 8
+  # parsed BlockData cache size during apply (0 to disable)
+  blockdata-cache-size: 2048
+  # chunk unload requests processed per tick after apply
+  max-chunk-unloads-per-tick: 64
   # reject-new: reject new apply jobs when pending queue is full
   # drop-oldest-pending: cancel oldest pending apply job and accept new one
   queue-overflow-policy: reject-new
@@ -32,3 +45,16 @@ history:
   # first-parent: replay-safe for GitBlock delta format
   # all-parents: merge-base also considers merge-parent links, with safe fallback when replay path is ambiguous
   merge-base-mode: first-parent
+  # cache entries for transition replay results (from->to)
+  transition-cache-size: 64
+  # cache entries for ancestor patch materialization
+  patch-cache-size: 64
+
+storage:
+  sqlite:
+    # Write-Ahead Logging improves concurrent read/write performance
+    wal: true
+    # NORMAL sync is faster and acceptable for plugin-level durability
+    synchronous-normal: true
+    # wait time for locked database before failing
+    busy-timeout-ms: 5000
