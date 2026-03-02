@@ -1,0 +1,8 @@
+repo-name: default
+
+apply:
+  max-blocks-per-tick: 1500
+  tick-budget-ms: 2
+
+checkpoints:
+  every-commits: 20

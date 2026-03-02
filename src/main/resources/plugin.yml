@@ -1,0 +1,22 @@
+name: PlotGit
+version: '${version}'
+main: io.froststream.untitled8.Untitled8
+api-version: '1.21'
+authors: [LecitronArts]
+description: Git-inspired block history and checkout workflow for creative servers.
+website: weeaxe.cn
+commands:
+  plotgit:
+    description: PlotGit command entry point
+    usage: /plotgit <help|init|status|commit|log|checkout|checkpoint>
+    permission: plotgit.use
+permissions:
+  plotgit.use:
+    description: Allows usage of base PlotGit commands
+    default: true
+  plotgit.admin:
+    description: Reserved for admin-level management commands
+    default: op
+  plotgit.bypass.quota:
+    description: Reserved quota bypass for future features
+    default: op
