@@ -85,6 +85,9 @@ public final class PlayerRepositoryStore {
 
     public synchronized CreateRepositoryResult createRepository(UUID playerId, String repositoryName) {
         String normalizedRepositoryName = normalizeRepositoryName(repositoryName);
+        if (normalizedRepositoryName.isBlank()) {
+            return CreateRepositoryResult.INVALID_NAME;
+        }
         UUID existingOwner = ownerByRepository.get(normalizedRepositoryName);
         if (existingOwner != null) {
             if (existingOwner.equals(playerId)) {
@@ -262,7 +265,8 @@ public final class PlayerRepositoryStore {
     public enum CreateRepositoryResult {
         CREATED,
         ALREADY_OWNED,
-        NAME_TAKEN
+        NAME_TAKEN,
+        INVALID_NAME
     }
 
     private static final class PlayerProfile {

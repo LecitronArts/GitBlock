@@ -2,6 +2,7 @@ package io.froststream.gitblock.repo;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -61,6 +62,20 @@ class PlayerRepositoryStoreTest {
         assertTrue(store.repositoryExists("teamrepo"));
         assertNotNull(store.repositoryOwner("teamrepo"));
         assertEquals("teamrepo", store.activeRepository(playerId));
+    }
+
+    @Test
+    void createRepositoryRejectsBlankNormalizedName() {
+        Path storeFile = tempDir.resolve("player-repositories.yml");
+        UUID playerId = UUID.randomUUID();
+
+        PlayerRepositoryStore store = new PlayerRepositoryStore(mockPlugin(), storeFile);
+        PlayerRepositoryStore.CreateRepositoryResult result =
+                store.createRepository(playerId, "../!!!");
+
+        assertEquals(PlayerRepositoryStore.CreateRepositoryResult.INVALID_NAME, result);
+        assertEquals(0, store.ownedRepositoryCount(playerId));
+        assertNull(store.activeRepository(playerId));
     }
 
     private static JavaPlugin mockPlugin() {

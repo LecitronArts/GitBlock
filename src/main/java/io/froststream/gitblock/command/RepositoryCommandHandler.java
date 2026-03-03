@@ -225,6 +225,10 @@ public final class RepositoryCommandHandler {
                     env.maxRepositories(player));
             return null;
         }
+        if (createStatus == RepositoryRuntimeManager.RepositoryCreateStatus.INVALID_NAME) {
+            env.send(player, "repository.repo-invalid-name");
+            return null;
+        }
         if (createStatus == RepositoryRuntimeManager.RepositoryCreateStatus.NAME_TAKEN) {
             env.send(player, "repository.repo-name-taken", requestedRepositoryName);
             return null;
@@ -293,6 +297,7 @@ public final class RepositoryCommandHandler {
                             "repository.repo-limit-reached",
                             env.ownedRepositories(player),
                             env.maxRepositories(player));
+            case INVALID_NAME -> env.send(player, "repository.repo-invalid-name");
         }
     }
 

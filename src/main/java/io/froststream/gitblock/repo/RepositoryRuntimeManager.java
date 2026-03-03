@@ -114,21 +114,26 @@ public final class RepositoryRuntimeManager implements AutoCloseable {
 
     public RepositoryCreateStatus createRepositoryForPlayer(
             UUID playerId, String repositoryName, int maxRepositories) {
-        if (playerRepositoryStore.isRepositoryOwner(playerId, repositoryName)) {
+        String normalizedRepositoryName = normalizeRepositoryName(repositoryName);
+        if (normalizedRepositoryName.isBlank()) {
+            return RepositoryCreateStatus.INVALID_NAME;
+        }
+        if (playerRepositoryStore.isRepositoryOwner(playerId, normalizedRepositoryName)) {
             return RepositoryCreateStatus.ALREADY_EXISTS;
         }
-        if (playerRepositoryStore.repositoryExists(repositoryName)) {
+        if (playerRepositoryStore.repositoryExists(normalizedRepositoryName)) {
             return RepositoryCreateStatus.NAME_TAKEN;
         }
         if (!playerCanCreateRepository(playerId, maxRepositories)) {
             return RepositoryCreateStatus.LIMIT_REACHED;
         }
         PlayerRepositoryStore.CreateRepositoryResult createResult =
-                playerRepositoryStore.createRepository(playerId, repositoryName);
+                playerRepositoryStore.createRepository(playerId, normalizedRepositoryName);
         return switch (createResult) {
             case CREATED -> RepositoryCreateStatus.CREATED;
             case ALREADY_OWNED -> RepositoryCreateStatus.ALREADY_EXISTS;
             case NAME_TAKEN -> RepositoryCreateStatus.NAME_TAKEN;
+            case INVALID_NAME -> RepositoryCreateStatus.INVALID_NAME;
         };
     }
 
@@ -235,6 +240,7 @@ public final class RepositoryRuntimeManager implements AutoCloseable {
         CREATED,
         ALREADY_EXISTS,
         NAME_TAKEN,
-        LIMIT_REACHED
+        LIMIT_REACHED,
+        INVALID_NAME
     }
 }

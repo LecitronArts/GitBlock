@@ -323,7 +323,15 @@ public final class GitBlockChestMenu implements Listener {
                     return;
                 }
                 RepositoryState state = runtime.repositoryStateService().getState();
-                if (!state.initialized() || runtime.dirtyMap().size() == 0 || menu.env.isApplyQueueBusy()) {
+                if (!state.initialized()) {
+                    menu.env.send(player, "menu.dynamic.uninitialized");
+                    return;
+                }
+                if (menu.env.isApplyQueueBusy()) {
+                    menu.env.send(player, "menu.dynamic.queue-busy");
+                    return;
+                }
+                if (runtime.dirtyMap().size() == 0) {
                     menu.env.send(player, "menu.dynamic.no-dirty");
                     return;
                 }
