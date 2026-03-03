@@ -101,6 +101,7 @@ public final class RepositoryRuntime implements AutoCloseable {
 
     @Override
     public void close() {
+        checkpointService.shutdown();
         commitWorker.shutdown();
         sqliteStore.close();
     }

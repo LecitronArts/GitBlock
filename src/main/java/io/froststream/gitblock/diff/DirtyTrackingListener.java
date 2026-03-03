@@ -11,11 +11,17 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockFadeEvent;
 import org.bukkit.event.block.BlockExplodeEvent;
+import org.bukkit.event.block.BlockFormEvent;
+import org.bukkit.event.block.BlockFromToEvent;
+import org.bukkit.event.block.BlockGrowEvent;
 import org.bukkit.event.block.BlockMultiPlaceEvent;
 import org.bukkit.event.block.BlockPistonExtendEvent;
 import org.bukkit.event.block.BlockPistonRetractEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.block.BlockSpreadEvent;
+import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.player.PlayerBucketEmptyEvent;
 import org.bukkit.event.player.PlayerBucketFillEvent;
@@ -118,26 +124,68 @@ public final class DirtyTrackingListener implements Listener {
         }
     }
 
-    private boolean isTrackingSuppressed() {
-        if (trackingGate.isSuppressed()) {
-            return true;
-        }
-        return false;
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onFluidFlow(BlockFromToEvent event) {
+        Block source = event.getBlock();
+        Block destination = event.getToBlock();
+        String oldState = destination.getBlockData().getAsString();
+        String newState = source.getBlockData().getAsString();
+        record(destination, oldState, newState);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onEntityChangeBlock(EntityChangeBlockEvent event) {
+        Block block = event.getBlock();
+        String oldState = block.getBlockData().getAsString();
+        String newState = event.getTo().createBlockData().getAsString();
+        record(block, oldState, newState);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockFade(BlockFadeEvent event) {
+        Block block = event.getBlock();
+        String oldState = block.getBlockData().getAsString();
+        String newState = event.getNewState().getBlockData().getAsString();
+        record(block, oldState, newState);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockForm(BlockFormEvent event) {
+        Block block = event.getBlock();
+        String oldState = block.getBlockData().getAsString();
+        String newState = event.getNewState().getBlockData().getAsString();
+        record(block, oldState, newState);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockGrow(BlockGrowEvent event) {
+        Block block = event.getBlock();
+        String oldState = block.getBlockData().getAsString();
+        String newState = event.getNewState().getBlockData().getAsString();
+        record(block, oldState, newState);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockSpread(BlockSpreadEvent event) {
+        Block block = event.getBlock();
+        String oldState = block.getBlockData().getAsString();
+        String newState = event.getNewState().getBlockData().getAsString();
+        record(block, oldState, newState);
     }
 
     private void record(Block block, String oldState, String newState) {
-        if (isTrackingSuppressed()) {
-            return;
-        }
         String worldName = block.getWorld().getName();
         int x = block.getX();
         int y = block.getY();
         int z = block.getZ();
+        LocationKey key = new LocationKey(worldName, x, y, z);
+        if (trackingGate.isSuppressed(key)) {
+            return;
+        }
         List<RepositoryRuntime> runtimes = runtimeManager.runtimesTracking(worldName, x, y, z);
         if (runtimes.isEmpty()) {
             return;
         }
-        LocationKey key = new LocationKey(worldName, x, y, z);
         for (RepositoryRuntime runtime : runtimes) {
             runtime.dirtyMap().recordChange(key, oldState, newState);
         }

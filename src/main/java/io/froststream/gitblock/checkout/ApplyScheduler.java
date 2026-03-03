@@ -190,30 +190,25 @@ public final class ApplyScheduler {
         Budget budget = dynamicBudgetForTps(tickTps);
         long tickStart = System.nanoTime();
         int processedThisTick = 0;
-        trackingGate.suppress();
-        try {
-            while (processedThisTick < budget.maxBlocks && currentJob.nextIndex < currentJob.total) {
-                if (System.nanoTime() - tickStart >= budget.budgetNanos) {
-                    break;
-                }
-
-                int changeIndex = currentJob.nextIndex++;
-                BlockChangeRecord change = currentJob.changes.get(changeIndex);
-                processedThisTick++;
-                ApplyOutcome outcome = applyChange(currentJob, change);
-                if (outcome == ApplyOutcome.APPLIED) {
-                    currentJob.applied++;
-                    currentJob.appliedIndexes.set(changeIndex);
-                    continue;
-                }
-                if (outcome == ApplyOutcome.ALREADY_AT_TARGET) {
-                    currentJob.applied++;
-                    continue;
-                }
-                currentJob.failed++;
+        while (processedThisTick < budget.maxBlocks && currentJob.nextIndex < currentJob.total) {
+            if (System.nanoTime() - tickStart >= budget.budgetNanos) {
+                break;
             }
-        } finally {
-            trackingGate.resume();
+
+            int changeIndex = currentJob.nextIndex++;
+            BlockChangeRecord change = currentJob.changes.get(changeIndex);
+            processedThisTick++;
+            ApplyOutcome outcome = applyChange(currentJob, change);
+            if (outcome == ApplyOutcome.APPLIED) {
+                currentJob.applied++;
+                currentJob.appliedIndexes.set(changeIndex);
+                continue;
+            }
+            if (outcome == ApplyOutcome.ALREADY_AT_TARGET) {
+                currentJob.applied++;
+                continue;
+            }
+            currentJob.failed++;
         }
 
         if (currentJob.nextIndex >= currentJob.total) {
@@ -305,6 +300,8 @@ public final class ApplyScheduler {
         if (decision == ApplyPreconditions.Decision.PRECONDITION_FAILED) {
             return ApplyOutcome.FAILED;
         }
+        LocationKey key = new LocationKey(change.world(), change.x(), change.y(), change.z());
+        trackingGate.suppress(key);
         try {
             block.setBlockData(resolveBlockData(change.newState()), false);
             return ApplyOutcome.APPLIED;
@@ -322,6 +319,8 @@ public final class ApplyScheduler {
                                     + ": "
                                     + invalidState.getMessage());
             return ApplyOutcome.FAILED;
+        } finally {
+            trackingGate.resume(key);
         }
     }
 

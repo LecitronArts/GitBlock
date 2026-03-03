@@ -1,19 +1,29 @@
 package io.froststream.gitblock.diff;
 
-import java.util.concurrent.atomic.AtomicInteger;
+import io.froststream.gitblock.model.LocationKey;
+import java.util.HashMap;
+import java.util.Map;
 
 public final class TrackingGate {
-    private final AtomicInteger suppressionDepth = new AtomicInteger(0);
+    private final Map<LocationKey, Integer> suppressionByLocation = new HashMap<>();
 
-    public void suppress() {
-        suppressionDepth.incrementAndGet();
+    public synchronized void suppress(LocationKey key) {
+        suppressionByLocation.merge(key, 1, Integer::sum);
     }
 
-    public void resume() {
-        suppressionDepth.updateAndGet(value -> Math.max(0, value - 1));
+    public synchronized void resume(LocationKey key) {
+        Integer count = suppressionByLocation.get(key);
+        if (count == null) {
+            return;
+        }
+        if (count <= 1) {
+            suppressionByLocation.remove(key);
+            return;
+        }
+        suppressionByLocation.put(key, count - 1);
     }
 
-    public boolean isSuppressed() {
-        return suppressionDepth.get() > 0;
+    public synchronized boolean isSuppressed(LocationKey key) {
+        return suppressionByLocation.containsKey(key);
     }
 }

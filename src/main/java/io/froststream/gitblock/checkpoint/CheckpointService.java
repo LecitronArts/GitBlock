@@ -29,6 +29,7 @@ import java.util.zip.GZIPOutputStream;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 public final class CheckpointService {
     private static final String SNAPSHOT_HEADER = "PGS1";
@@ -44,6 +45,8 @@ public final class CheckpointService {
     private final Path legacyCheckpointIndex;
     private final Map<String, String> snapshotFileByCommit = new ConcurrentHashMap<>();
     private final Set<String> checkpointsInFlight = ConcurrentHashMap.newKeySet();
+    private final Map<String, BukkitTask> checkpointTasksByCommit = new ConcurrentHashMap<>();
+    private volatile boolean shuttingDown;
 
     public CheckpointService(
             JavaPlugin plugin,
@@ -78,26 +81,67 @@ public final class CheckpointService {
     }
 
     public void createCheckpointAsync(String commitId, String mode) {
+        if (shuttingDown) {
+            return;
+        }
         if (!checkpointsInFlight.add(commitId)) {
             return;
         }
-        Bukkit.getScheduler()
-                .runTaskAsynchronously(
-                        plugin,
-                        () -> {
-                            try {
-                                createCheckpoint(commitId, mode);
-                            } catch (Exception exception) {
-                                plugin.getLogger()
-                                        .warning(
-                                                "Failed to create checkpoint for "
-                                                        + commitId
-                                                        + ": "
-                                                        + exception.getMessage());
-                            } finally {
-                                checkpointsInFlight.remove(commitId);
-                            }
-                        });
+        if (shuttingDown) {
+            checkpointsInFlight.remove(commitId);
+            return;
+        }
+        BukkitTask task =
+                Bukkit.getScheduler()
+                        .runTaskAsynchronously(
+                                plugin,
+                                () -> {
+                                    try {
+                                        if (shuttingDown) {
+                                            return;
+                                        }
+                                        createCheckpoint(commitId, mode);
+                                    } catch (Exception exception) {
+                                        if (!shuttingDown) {
+                                            plugin.getLogger()
+                                                    .warning(
+                                                            "Failed to create checkpoint for "
+                                                                    + commitId
+                                                                    + ": "
+                                                                    + exception.getMessage());
+                                        }
+                                    } finally {
+                                        checkpointTasksByCommit.remove(commitId);
+                                        checkpointsInFlight.remove(commitId);
+                                    }
+                                });
+        checkpointTasksByCommit.put(commitId, task);
+        if (!checkpointsInFlight.contains(commitId)) {
+            checkpointTasksByCommit.remove(commitId, task);
+        }
+    }
+
+    public void shutdown() {
+        shuttingDown = true;
+        for (BukkitTask task : checkpointTasksByCommit.values()) {
+            task.cancel();
+        }
+        long deadlineMillis = System.currentTimeMillis() + 5000L;
+        while (!checkpointsInFlight.isEmpty() && System.currentTimeMillis() < deadlineMillis) {
+            try {
+                Thread.sleep(10L);
+            } catch (InterruptedException interruptedException) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        if (!checkpointsInFlight.isEmpty()) {
+            plugin.getLogger()
+                    .warning(
+                            "Checkpoint shutdown timed out with "
+                                    + checkpointsInFlight.size()
+                                    + " checkpoint task(s) still in flight.");
+        }
     }
 
     public Map<LocationKey, String> loadSnapshotState(String commitId) {
@@ -157,6 +201,9 @@ public final class CheckpointService {
     }
 
     private void createCheckpoint(String commitId, String mode) {
+        if (shuttingDown) {
+            return;
+        }
         if (!commitWorker.hasCommit(commitId)) {
             throw new IllegalArgumentException("Unknown commit for checkpoint: " + commitId);
         }
@@ -169,6 +216,9 @@ public final class CheckpointService {
 
         List<CommitMetadata> path = commitWorker.pathFromAncestor(baseCheckpoint, commitId);
         for (CommitMetadata commit : path) {
+            if (shuttingDown) {
+                return;
+            }
             for (BlockChangeRecord change : commitWorker.readCommitChangesBlocking(commit.commitId())) {
                 LocationKey key = new LocationKey(change.world(), change.x(), change.y(), change.z());
                 if (isAir(change.newState())) {
@@ -179,6 +229,9 @@ public final class CheckpointService {
             }
         }
 
+        if (shuttingDown) {
+            return;
+        }
         String fileName = commitId + ".pgs";
         Path snapshotFile = snapshotDir.resolve(fileName);
         writeSnapshot(snapshotFile, state);
